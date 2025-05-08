@@ -20,6 +20,9 @@ importers:
 
   client:
     dependencies:
+      '@mcpwithhui/hui':
+        specifier: file:../packages/hui
+        version: link:../packages/hui
       '@modelcontextprotocol/sdk':
         specifier: ^1.11.0
         version: 1.11.0
@@ -45,9 +48,6 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.11.0
         version: 1.11.0
-      mcpwithhui-shared:
-        specifier: workspace:*
-        version: link:../../shared
       zod:
         specifier: 3.23.8
         version: 3.23.8

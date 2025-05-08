@@ -5,7 +5,12 @@ import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import * as cheerio from 'cheerio';
 import fs from 'fs'; // 织：引入 fs
 import path from 'path'; // 织：引入 path
-import type { HuiRenderingHints as ImportedHuiRenderingHints } from 'mcpwithhui-shared'; // 织: 添加导入
+import { fileURLToPath } from 'url'; // 织：新增导入
+import type { HuiRenderingHints as ImportedHuiRenderingHints } from '@mcpwithhui/hui/shared'; // 织: 添加导入
+
+// 织：为 ES 模块定义 __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 interface CurrentHuiRenderingHints extends ImportedHuiRenderingHints {
     category?: string;

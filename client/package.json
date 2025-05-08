@@ -10,8 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.4.0",
-    "@modelcontextprotocol/sdk": "^1.11.0"
+    "@mcpwithhui/hui": "file:../packages/hui",
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "vue": "^3.4.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
@@ -20,4 +21,4 @@
     "vue-tsc": "^2.0.0"
   },
   "license": "MIT"
-} 
+}

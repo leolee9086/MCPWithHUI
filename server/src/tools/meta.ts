@@ -3,8 +3,8 @@ import {
     HuiRenderingHints as ImportedHuiRenderingHints, 
     HuiActionDefinition as ImportedHuiActionDefinition, 
     HuiInputHint
-} from 'mcpwithhui-shared'; 
-import { HuiMcpServer } from '@mcpwithhui/hui'; 
+} from '@mcpwithhui/hui/shared'; 
+import { HuiMcpServer } from '@mcpwithhui/hui/server'; 
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'; 
 
@@ -149,8 +149,8 @@ export async function findSuitableToolsHandler(
             category: currentDef.huiHints?.category || 'Uncategorized',
             tags: currentDef.huiHints?.tags || [],
             huiLabel: currentDef.huiHints?.label || currentDef.name,
-            huiDescription: currentDef.huiHints?.description || currentDef.description,
-            toolEngineDescription: currentDef.description,
+            huiDescription: currentDef.huiHints?.description || currentDef.description || '无HUI描述信息',
+            toolEngineDescription: currentDef.description || '无基础描述信息',
             outputDescription: currentDef.huiHints?.outputDescription || 'N/A',
             inputParamsSummary: currentDef.inputSchema?.shape ? Object.entries(currentDef.inputSchema.shape).map(([key, val]: [string, any]) => ({
                 name: key,

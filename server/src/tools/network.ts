@@ -2,7 +2,7 @@
 
 import { z } from 'zod';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import type { HuiRenderingHints as ImportedHuiRenderingHints } from 'mcpwithhui-shared';
+import type { HuiRenderingHints as ImportedHuiRenderingHints } from '@mcpwithhui/hui/shared';
 
 // 本地HUI渲染提示类型扩展
 interface CurrentHuiRenderingHints extends ImportedHuiRenderingHints {

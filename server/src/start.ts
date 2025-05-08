@@ -3,7 +3,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ErrorCode, McpError, JSONRPCRequestSchema, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'; // Moved isInitializeRequest here
 import { randomUUID } from 'crypto';
-import { HuiMcpServer } from '@mcpwithhui/hui';
+import { HuiMcpServer } from '@mcpwithhui/hui/server';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 
@@ -25,12 +25,13 @@ const sharedHuiServerConfig = {
   version: "0.0.1",
 };
 
-// --- Global HuiMcpServer Instance ---  // 织: 移除全局实例
-// const huiMcpServer = new HuiMcpServer(sharedHuiServerConfig);
-// registerAllTools(huiMcpServer); // 织: 移除全局注册
+// --- 织: 创建全局 HuiMcpServer 实例并注册工具 ---
+const globalHuiMcpServer = new HuiMcpServer(sharedHuiServerConfig);
+registerAllTools(globalHuiMcpServer);
+console.log('[GlobalServer] Global HuiMcpServer instance created and tools registered.');
 
+// 织: activeStreamableTransports 只存储 transport，因为它们都连接到 globalHuiMcpServer
 const activeStreamableTransports = new Map<string, StreamableHTTPServerTransport>();
-// const activeSseTransports = new Map<string, SSEServerTransport>(); // 织: 替换为 activeSseSessions
 const activeSseSessions = new Map<string, { transport: SSEServerTransport, server: HuiMcpServer }>();
 
 const simpleAuthMiddleware = (req: Request, res: Response, next: NextFunction) => {
@@ -70,26 +71,19 @@ app.all('/mcp', simpleAuthMiddleware, async (req: Request, res: Response) => {
     console.log(`[HTTP /mcp] Received ${req.method} request for ${req.url}.`);
     const mcpSessionId = req.headers['mcp-session-id'] as string | undefined;
     let transport: StreamableHTTPServerTransport | undefined;
-    let serverToConnect: HuiMcpServer; // 织: 每个 streamable transport 也应该有自己的 server 实例
+
+    // 织: 添加详细日志
+    console.log(`[HTTP /mcp] mcpSessionId from header: ${mcpSessionId}`);
+    console.log(`[HTTP /mcp] Request body received:`, JSON.stringify(req.body, null, 2));
+    const isInitReq = isInitializeRequest(req.body); // 把这个结果存起来，后面else分支也能用
+    console.log(`[HTTP /mcp] Result of isInitializeRequest(req.body): ${isInitReq}`);
 
     if (mcpSessionId && activeStreamableTransports.has(mcpSessionId)) {
         transport = activeStreamableTransports.get(mcpSessionId);
-        // 织: 这里需要获取关联的 serverToConnect，目前 activeStreamableTransports 只存了 transport
-        // 织: 为了简化本次修改，暂时假设 streamable transport 的串线问题不严重或后续处理
-        // 织: 理想情况下，activeStreamableTransports 也应该存储 { transport, server } 对
-        // 织: 暂时继续使用一个共享的（或按需创建的）server 实例给 streamable transport
-        // 织: 这里创建一个临时的，或者后续需要改进为与 mcpSessionId 绑定的实例
-        console.warn('[HTTP /mcp] Reusing existing StreamableHTTPServerTransport. Server instance management for streamable transports needs review for full isolation.');
-        serverToConnect = new HuiMcpServer(sharedHuiServerConfig); // 织: 临时处理，每次都新建，或从Map取
-        registerAllTools(serverToConnect); // 织: 注册工具到这个临时/特定实例
-
-        console.log(`[HTTP /mcp] Reusing existing StreamableHTTPServerTransport for session: ${mcpSessionId}`);
-    } else if (isInitializeRequest(req.body)) { // Check if it's an initialization request
-        console.log('[HTTP /mcp] Initialization request detected. Creating new StreamableHTTPServerTransport and new HuiMcpServer.');
+        console.log(`[HTTP /mcp] Reusing existing StreamableHTTPServerTransport for session: ${mcpSessionId} (connected to global server).`);
+    } else if (isInitReq) { // Check if it's an initialization request // 织: 使用缓存的 isInitReq 变量
+        console.log('[HTTP /mcp] Initialization request detected. Creating new StreamableHTTPServerTransport to connect to global HuiMcpServer.');
         
-        serverToConnect = new HuiMcpServer(sharedHuiServerConfig); // 织: 为新的 streamable 会话创建新的 server
-        registerAllTools(serverToConnect); // 织: 注册工具
-
         const newTransport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => {
                 const newId = randomUUID();
@@ -98,17 +92,17 @@ app.all('/mcp', simpleAuthMiddleware, async (req: Request, res: Response) => {
             },
             onsessioninitialized: (newlyGeneratedSessionId: string) => {
                 console.log(`[Transport /mcp] Session initialized: ${newlyGeneratedSessionId}. Storing transport.`);
-                activeStreamableTransports.set(newlyGeneratedSessionId, newTransport); // 织: TODO - 应同时存储 serverToConnect
+                activeStreamableTransports.set(newlyGeneratedSessionId, newTransport); 
                 console.log(`[Transport /mcp] Active streamable sessions: ${activeStreamableTransports.size}`);
             }
         });
         transport = newTransport;
         
         try {
-            await serverToConnect.connect(transport); // 织: 连接到新创建的 serverToConnect
-            console.log('[HTTP /mcp] New transport connected to its new huiMcpServer.');
+            await globalHuiMcpServer.connect(transport); 
+            console.log('[HTTP /mcp] New transport connected to globalHuiMcpServer.');
         } catch (connectError) {
-            console.error('[HTTP /mcp] Failed to connect new transport to its new server:', connectError);
+            console.error('[HTTP /mcp] Failed to connect new transport to globalHuiMcpServer:', connectError);
             res.status(500).json({ error: 'Server connection error during transport initialization' });
             return;
         }
@@ -123,7 +117,9 @@ app.all('/mcp', simpleAuthMiddleware, async (req: Request, res: Response) => {
             }
         };
     } else {
-        console.log('[HTTP /mcp] Invalid request: Not an initialization request and no valid session ID provided.');
+        // 织: 添加日志，说明为什么走到这个分支
+        console.log('[HTTP /mcp] Condition for creating/reusing transport NOT MET. mcpSessionId valid and present? ->', !!(mcpSessionId && activeStreamableTransports.has(mcpSessionId)), 'Is it an init request? ->', isInitReq);
+        console.log('[HTTP /mcp] Invalid request: Not an initialization request and no valid session ID provided. Sending 400.');
         res.status(400).json({
             jsonrpc: '2.0',
             error: { code: ErrorCode.InvalidRequest, message: 'Bad Request: No valid session ID or initialization request.' },
@@ -142,6 +138,12 @@ app.all('/mcp', simpleAuthMiddleware, async (req: Request, res: Response) => {
         const transportSessionId = transport.sessionId || 'pending';
         console.log(`[HTTP /mcp][LOG_POINT_1A] Attempting to call transport.handleRequest for session: ${transportSessionId}. Request body ID: ${req.body?.id}`);
         await transport.handleRequest(req, res, req.body);
+        // 织: 记录即将发送的响应头，尤其是在成功处理后
+        if (!res.headersSent) { // 确保头还没发送
+             console.log(`[HTTP /mcp][LOG_POINT_1B_HEADERS] Response headers before sending (after handleRequest success) for session: ${transport.sessionId || transportSessionId}:`, res.getHeaders());
+        } else {
+             console.log(`[HTTP /mcp][LOG_POINT_1B_HEADERS] Headers already sent for session: ${transport.sessionId || transportSessionId}.`);
+        }
         console.log(`[HTTP /mcp][LOG_POINT_1B] Successfully returned from transport.handleRequest for session: ${transportSessionId}. Request body ID: ${req.body?.id}`);
     } catch (error: any) {
         const transportSessionId = transport?.sessionId || 'transport_undefined_in_catch';

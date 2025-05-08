@@ -1,7 +1,7 @@
-import { HuiMcpServer } from '@mcpwithhui/hui';
+import { HuiMcpServer } from '@mcpwithhui/hui/server';
 import { z } from 'zod';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { HuiInputHint, HuiRenderingHints } from 'mcpwithhui-shared';
+import type { HuiInputHint, HuiRenderingHints } from '@mcpwithhui/hui/shared';
 
 // Import Siyuan tool specifics
 import {
@@ -40,7 +40,7 @@ import {
     findSuitableToolsInputRawShape,
     findSuitableToolsHuiHints,
     findSuitableToolsHandler
-} from './tools/meta'; // Assuming meta.ts is in the same tools directory
+} from './tools/meta.js';
 
 export function registerAllTools(huiMcpServer: HuiMcpServer): void {
   // --- greet tool ---
@@ -149,7 +149,7 @@ export function registerAllTools(huiMcpServer: HuiMcpServer): void {
 
   huiMcpServer.huiTool(
     'findMyNotes',
-    findMyNotesHuiHints.description || '查找"织"记录的笔记。',
+    (findMyNotesHuiHints as HuiRenderingHints)?.description || '查找"织"记录的笔记。',
     findMyNotesInputRawShape,
     findMyNotesHuiHints,
     findMyNotesHandler
@@ -158,7 +158,7 @@ export function registerAllTools(huiMcpServer: HuiMcpServer): void {
   // 织：注册 getWebpageContent 工具
   huiMcpServer.huiTool(
     'getWebpageContent',
-    getWebpageContentHuiHints.description || '获取指定URL的网页HTML内容。', // 使用HUI描述或默认描述
+    (getWebpageContentHuiHints as HuiRenderingHints)?.description || '获取指定URL的网页HTML内容。',
     getWebpageContentInputRawShape,
     getWebpageContentHuiHints,
     getWebpageContentHandler
@@ -166,11 +166,11 @@ export function registerAllTools(huiMcpServer: HuiMcpServer): void {
 
   // --- Meta tools ---
   huiMcpServer.huiTool(
-    'findSuitableTools', // Tool name (MCP standard)
-    findSuitableToolsHuiHints.description || 'Finds suitable tools based on a query.', // Engine description
-    findSuitableToolsInputRawShape,      // Zod Raw Shape for input
-    findSuitableToolsHuiHints,           // HUI Rendering Hints
-    findSuitableToolsHandler             // Handler function
+    'findSuitableTools',
+    (findSuitableToolsHuiHints as HuiRenderingHints)?.description || 'Finds suitable tools based on a query.',
+    findSuitableToolsInputRawShape,
+    findSuitableToolsHuiHints,
+    findSuitableToolsHandler
   );
 
   console.log('[ToolRegistration] All tools, including meta-tools, registered on huiMcpServer.');
