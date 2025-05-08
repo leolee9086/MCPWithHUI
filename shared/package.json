@@ -1,0 +1,17 @@
+{
+  "name": "mcpwithhui-shared",
+  "version": "0.0.1",
+  "description": "Shared types and utilities for MCPWithHUI server and client",
+  "types": "dist/types.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "zod": "3.24.1"
+  }
+}

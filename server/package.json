@@ -1,0 +1,29 @@
+{
+  "name": "mcpwithhui-server",
+  "version": "0.0.1",
+  "description": "MCP Server with HUI capabilities - Runner",
+  "main": "dist/start.js",
+  "types": "dist/start.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/start.ts",
+    "start": "tsx dist/start.js"
+  },
+  "dependencies": {
+    "@mcpwithhui/hui": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "@types/cors": "^2.8.17",
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.17.1",
+    "mcpwithhui-shared": "workspace:*",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.0.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@mcpwithhui/hui",
+  "version": "0.0.1",
+  "description": "Core HUI-enhanced MCP Server and Client logic",
+  "main": "dist/server.js", 
+  "types": "dist/server.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/server.js" 
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "mcpwithhui-shared": "workspace:*",
+    "zod": "3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "license": "MIT"
+} 

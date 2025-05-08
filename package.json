@@ -1,0 +1,33 @@
+{
+  "name": "mcpwithhui-monorepo",
+  "version": "0.0.1",
+  "description": "MCP Server and Client with Human User Interface integration",
+  "private": true,
+  "scripts": {
+    "build:server": "pnpm --filter mcpwithhui-server build",
+    "build:client": "pnpm --filter mcpwithhui-client build",
+    "dev:server": "pnpm --filter mcpwithhui-server dev",
+    "dev:client": "pnpm --filter mcpwithhui-client dev",
+    "lint": "echo \"Linting not configured yet.\"",
+    "test": "echo \"Testing not configured yet.\""
+  },
+  "keywords": [
+    "mcp",
+    "hui",
+    "ai",
+    "llm",
+    "protocol"
+  ],
+  "author": "leolee9086 & 织",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "packageManager": "pnpm@9.x.x",
+  "pnpm": {
+    "overrides": {
+      "zod": "3.23.8"
+    }
+  }
+} 
