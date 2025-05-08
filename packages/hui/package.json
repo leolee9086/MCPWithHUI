@@ -6,6 +6,7 @@
   "exports": {
     ".": "./dist/shared/types.js",
     "./client": "./dist/client/HuiMcpClient.js",
+    "./client-browser": "./dist/browser/hui-client.esm.js",
     "./server": "./dist/server.js",
     "./shared": "./dist/shared/types.js"
   },
@@ -13,6 +14,7 @@
     "*": {
       ".": ["./dist/shared/types.d.ts"],
       "client": ["./dist/client/HuiMcpClient.d.ts"],
+      "client-browser": ["./dist/browser/hui-client.esm.d.ts"],
       "server": ["./dist/server.d.ts"],
       "shared": ["./dist/shared/types.d.ts"]
     }
@@ -21,17 +23,25 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build:tsc": "tsc",
+    "build:client:esm": "esbuild src/client/HuiMcpClient.ts --bundle --outfile=dist/browser/hui-client.esm.js --format=esm --platform=browser --sourcemap",
+    "build:server:esm": "esbuild src/server.ts --bundle --outfile=dist/browser/hui-server.esm.js --format=esm --platform=browser --sourcemap",
+
+    "build:transport:http": "esbuild node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js --bundle --outfile=dist/browser/mcp-sdk-streamableHttp.esm.js --format=esm --platform=browser --sourcemap",
+    "build:transport:sse": "esbuild node_modules/@modelcontextprotocol/sdk/dist/esm/client/sse.js --bundle --outfile=dist/browser/mcp-sdk-sse.esm.js --format=esm --platform=browser --sourcemap",
+    "build": "npm run build:tsc && npm run build:client:esm && npm run build:transport:http && npm run build:transport:sse",
     "dev": "tsc --watch",
     "start": "node dist/server.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.11.0",
-    "zod": "3.23.8"
+    "zod": "3.23.8",
+    "zod-to-json-schema": "^3.23.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "esbuild": "^0.20.0"
   },
   "license": "MIT"
 } 

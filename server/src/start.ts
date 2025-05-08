@@ -6,6 +6,81 @@ import { randomUUID } from 'crypto';
 import { HuiMcpServer } from '@mcpwithhui/hui/server';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import path from 'path'; // 织: 导入 path 模块
+import { fileURLToPath } from 'url'; // 织: 导入 for ES Modules
+
+// 织: 在最前面加入构建和拷贝逻辑
+import { execSync } from 'child_process';
+import fs from 'fs'; // 织: 使用内置的 fs 模块
+
+const __filenameGlobal = fileURLToPath(import.meta.url);
+const __dirnameGlobal = path.dirname(__filenameGlobal);
+
+const huiPackageDir = path.resolve(__dirnameGlobal, '../../packages/hui');
+const serverPublicLibsDir = path.resolve(__dirnameGlobal, '../public/libs');
+
+// 使用 IIFE 来允许顶层 await (或者可以将此逻辑移入一个 async 函数并在顶层调用)
+(async () => {
+  try {
+    console.log('[FileCopyProcess] Assuming @mcpwithhui/hui has been pre-built.');
+
+    console.log('[FileCopyProcess] Ensuring public/libs directory exists...');
+    // fs.promises.mkdir 在 Node.js v10.12.0+ 中可用
+    await fs.promises.mkdir(serverPublicLibsDir, { recursive: true });
+    console.log(`[FileCopyProcess] Directory ${serverPublicLibsDir} ensured.`);
+
+    const clientSourcePath = path.join(huiPackageDir, 'dist/browser/hui-client.esm.js');
+    const clientDestPath = path.join(serverPublicLibsDir, 'hui-client.js');
+    // 织: shared/types.js 应该被 esbuild 打包进 hui-client.esm.js 了，暂时不再单独拷贝
+    // const typesSourcePath = path.join(huiPackageDir, 'dist/shared/types.js');
+    // const typesDestPath = path.join(serverPublicLibsDir, 'hui-shared-types.js');
+
+    if (!fs.existsSync(clientSourcePath)) {
+        console.warn(`[FileCopyProcess] Source file not found: ${clientSourcePath}. Skipping copy. Ensure @mcpwithhui/hui is built correctly with 'npm run build'.`);
+    } else {
+        console.log(`[FileCopyProcess] Copying ${clientSourcePath} to ${clientDestPath}...`);
+        await fs.promises.copyFile(clientSourcePath, clientDestPath);
+        console.log('[FileCopyProcess] Bundled hui-client.js copied.');
+    }
+
+    // if (!fs.existsSync(typesSourcePath)) {
+    //     console.warn(`[FileCopyProcess] Source file not found: ${typesSourcePath}. Skipping copy. Ensure @mcpwithhui/hui is built.`);
+    // } else {
+    //     console.log(`[FileCopyProcess] Copying ${typesSourcePath} to ${typesDestPath}...`);
+    //     await fs.promises.copyFile(typesSourcePath, typesDestPath);
+    //     console.log('[FileCopyProcess] hui-shared-types.js copied.');
+    // }
+
+    // 织: 拷贝独立的 Transport Bundles
+    const httpTransportSourcePath = path.join(huiPackageDir, 'dist/browser/mcp-sdk-streamableHttp.esm.js');
+    const httpTransportDestPath = path.join(serverPublicLibsDir, 'mcp-sdk-streamableHttp.esm.js');
+    const sseTransportSourcePath = path.join(huiPackageDir, 'dist/browser/mcp-sdk-sse.esm.js');
+    const sseTransportDestPath = path.join(serverPublicLibsDir, 'mcp-sdk-sse.esm.js');
+
+    if (!fs.existsSync(httpTransportSourcePath)) {
+        console.warn(`[FileCopyProcess] Source file not found: ${httpTransportSourcePath}. Skipping copy. Ensure @mcpwithhui/hui is built correctly with 'npm run build'.`);
+    } else {
+        console.log(`[FileCopyProcess] Copying ${httpTransportSourcePath} to ${httpTransportDestPath}...`);
+        await fs.promises.copyFile(httpTransportSourcePath, httpTransportDestPath);
+        console.log('[FileCopyProcess] Bundled mcp-sdk-streamableHttp.esm.js copied.');
+    }
+
+    if (!fs.existsSync(sseTransportSourcePath)) {
+        console.warn(`[FileCopyProcess] Source file not found: ${sseTransportSourcePath}. Skipping copy. Ensure @mcpwithhui/hui is built correctly with 'npm run build'.`);
+    } else {
+        console.log(`[FileCopyProcess] Copying ${sseTransportSourcePath} to ${sseTransportDestPath}...`);
+        await fs.promises.copyFile(sseTransportSourcePath, sseTransportDestPath);
+        console.log('[FileCopyProcess] Bundled mcp-sdk-sse.esm.js copied.');
+    }
+
+    console.log('[BuildProcess] Client files copy process finished.');
+  } catch (error) {
+    console.error('[BuildProcess] Error during build or file copy:', error);
+    // 决定是否在构建失败时退出服务器，或者允许服务器在没有这些静态文件的情况下运行
+    // process.exit(1); // 如果这些文件是关键的，可以选择退出
+  }
+})();
+// --- 构建和拷贝逻辑结束 ---
 
 // 织: 导入新的工具注册函数
 import { registerAllTools } from './toolRegistration.js'; // 确保使用 .js 后缀如果编译目标是ESM且原始文件是.ts
@@ -18,6 +93,10 @@ const KEEP_ALIVE_INTERVAL_MS = 25000; // 织: Added for SSE keep-alive (25 secon
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+// 织: 配置静态文件服务
+app.use(express.static(path.join(__dirnameGlobal, '../public')));
+console.log(`[StaticServer] Serving static files from: ${path.join(__dirnameGlobal, '../public')}`);
 
 // --- Shared Server Configuration ---
 const sharedHuiServerConfig = {
@@ -314,4 +393,9 @@ app.listen(PORT, () => {
   console.log(`Legacy SSE Connection Endpoint: http://localhost:${PORT}/sse`);
   console.log(`Legacy MCP POST Message Endpoint: http://localhost:${PORT}${SSE_POST_ENDPOINT_PATH}`);
   console.log(`HUI Actions Endpoint: http://localhost:${PORT}/mcp-hui/getActions`);
+  console.log(`Static files (e.g., HUI Client Guide): http://localhost:${PORT}/hui-client-guide.md`);
+  console.log(`Static HUI Client JS (Bundled): http://localhost:${PORT}/libs/hui-client.js`);
+  console.log(`Static SDK HTTP Transport JS (Bundled): http://localhost:${PORT}/libs/mcp-sdk-streamableHttp.esm.js`);
+  console.log(`Static SDK SSE Transport JS (Bundled): http://localhost:${PORT}/libs/mcp-sdk-sse.esm.js`);
+  // console.log(`Static HUI Shared Types JS: http://localhost:${PORT}/libs/hui-shared-types.js`);
 }); 

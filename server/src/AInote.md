@@ -42,7 +42,7 @@
         -   *注意：在实现过程中，Linter对handler的类型签名反复报错，即使使用了标准类型。暂时假设为Linter环境问题并继续。*
     -   **`MCPWithHUI/server/src/toolRegistration.ts`**:
         -   导入了 `findSuitableToolsInputRawShape`, `findSuitableToolsHuiHints`, `findSuitableToolsHandler` 从 `./tools/meta.ts`。
-        -   调用 `huiMcpServer.huiTool()` 注册了 `findSuitableTools` 元工具。
+        -   调用 `huiMcpServer.huiTool` 注册了 `findSuitableTools` 元工具。
 -   **原因**: 为了应对未来工具数量膨胀的问题，提供一个智能的工具发现机制，使"织"能更有效地选择和使用工具。
 -   **下一步**:
     -   为现有工具填充增强的元数据 (`category`, `tags` 等)。
@@ -273,3 +273,18 @@
     -   Streamable HTTP (`/mcp`) 的会话隔离机制尚未完全对齐，标记为待改进点。
     -   全局工具列表接口 (`/mcp-hui/getActions`) 通过临时实例实现，功能得以保留。
 -   **记录时间**: Wed May 07 2025 16:25:19 GMT+0800 (中国标准时间)
+
+## 2025-05-08 (织) - 改进 getStaticHuiClientUsageInfo 工具的示例代码
+
+-   **文件**: `toolRegistration.ts`
+-   **修改**: 更新了 `getStaticHuiClientUsageInfo` 工具的 handler 函数中 `usageInstructions` 字符串内的 JavaScript 示例代码。
+    -   **连接逻辑**: 示例代码现在演示了更健壮的连接尝试顺序：
+        1.  首先尝试使用 `StreamableHTTPClientTransport` (HTTP POST) 进行连接。
+        2.  如果 POST 连接失败，则会捕获错误，记录警告，并尝试关闭可能部分打开的 HTTP transport。
+        3.  然后回退到尝试使用 `SSEClientTransport` (Server-Sent Events) 进行连接。
+        4.  如果 SSE 连接也失败，则记录详细的错误信息，指明两种方式都已尝试。
+    -   **导入语句**: 示例代码的导入部分现在也包括了 `SSEClientTransport` 从服务器静态路径的导入。
+    -   **错误处理与日志**: 示例代码中的错误处理和控制台日志记录得到了改进，能更清晰地反映连接尝试的过程和结果。
+    -   **清理逻辑**: `finally` 块中的清理逻辑也稍作调整，确保在操作结束后关闭客户端连接。
+-   **原因**: 使 `getStaticHuiClientUsageInfo` 工具提供的客户端示例代码与 `MCPWithHUI/client/src/components/ToolList.vue` 中实际采用的、更鲁棒的连接策略（POST 优先，SSE 回退）保持一致，为开发者提供更准确、更实用的参考。
+-   **记录时间**: Thu May 08 2025 22:50:00 GMT+0800 (中国标准时间)

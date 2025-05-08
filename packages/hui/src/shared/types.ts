@@ -19,6 +19,7 @@ export interface HuiInputHintOption {
 export interface HuiInputHint {
   label: string;
   inputType: 'text' | 'textarea' | 'number' | 'checkbox' | 'select' | 'radio' | string; // Allow custom types
+  description?: string;
   required?: boolean;
   placeholder?: string;
   options?: HuiInputHintOption[];
@@ -26,7 +27,7 @@ export interface HuiInputHint {
   min?: number;
   max?: number;
   step?: number;
-  // Potentially other properties like 'description', 'validationRegex', etc.
+  // Potentially other properties like 'validationRegex', etc.
 }
 
 export interface HuiHints {
