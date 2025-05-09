@@ -281,7 +281,7 @@ export async function findDailyNoteBlocksWithoutLifelogHandler(
         dailynote_blocks AS (
             SELECT block_id 
             FROM attributes 
-            WHERE name = 'custom-dailynote'
+            WHERE name like 'custom-dailynote%'
         ),
         -- 查找所有生活日志块ID (包含custom-lifelog-type属性的块)
         lifelog_blocks AS (
