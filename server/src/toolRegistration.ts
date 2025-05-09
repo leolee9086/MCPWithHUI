@@ -28,11 +28,14 @@ import {
     findMyNotesHandler
 } from './tools/siyuan.js';
 
-// 导入新的生活日志工具
+// 导入生活日志工具
 import {
     findBlocksWithLifelogTypeInputRawShape,
     findBlocksWithLifelogTypeHuiHints,
-    findBlocksWithLifelogTypeHandler
+    findBlocksWithLifelogTypeHandler,
+    findDailyNoteBlocksWithoutLifelogInputRawShape,
+    findDailyNoteBlocksWithoutLifelogHuiHints,
+    findDailyNoteBlocksWithoutLifelogHandler
 } from './tools/lifelog.js';
 
 // 织：导入新的网络工具
@@ -325,6 +328,15 @@ connectAndListTools().catch(console.error);
     findBlocksWithLifelogTypeInputRawShape,
     findBlocksWithLifelogTypeHuiHints,
     findBlocksWithLifelogTypeHandler
+  );
+
+  // 注册无生活日志标记的日记子块查询工具
+  huiMcpServer.huiTool(
+    'findDailyNoteBlocksWithoutLifelog',
+    '查询日记块的直接子块中，没有custom-lifelog-type属性的块',
+    findDailyNoteBlocksWithoutLifelogInputRawShape,
+    findDailyNoteBlocksWithoutLifelogHuiHints,
+    findDailyNoteBlocksWithoutLifelogHandler
   );
 
   console.log('[ToolRegistration] All tools, including meta-tools, registered on huiMcpServer.');
