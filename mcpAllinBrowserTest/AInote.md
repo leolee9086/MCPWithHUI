@@ -138,4 +138,84 @@
   - 用户提示可以直接查询笔记本ID。
   - 调用 `mcp_zhiToolboxServer_getSiyuanNotebooks` 工具成功获取了 27 个笔记本列表。
   - 在列表中发现名为 "日记" 的笔记本，ID 为 `20240229223635-3pims88`。
-  - 初步推测此笔记本为用于写入每日笔记的目标笔记本，等待用户确认或指定其他ID。 
+  - 初步推测此笔记本为用于写入每日笔记的目标笔记本，等待用户确认或指定其他ID。
+
+## 2025-05-09 22:43:22 (织)
+- **调查 Transport 间潜在的"串台" (Crosstalk) 问题**:
+  - 用户反馈尽管测试通过，但怀疑 BroadcastChannel 和 WebRTC transport 之间可能存在消息串扰。
+  - **初步分析**: 最可能的原因是前一个测试 (BroadcastChannel) 的资源未被完全清理，特别是 `BroadcastChannel` 对象本身可能未被正确关闭，导致其监听器仍在接收消息，或者影响后续测试的环境。
+  - **调查重点**: `BroadcastChannelClientTransport.ts` 和 `BroadcastChannelServerTransport.ts` 的 `close()` 方法实现，需要确认它们是否：
+    1.  正确移除了 `BroadcastChannel` 实例上的 `onmessage` 监听器。
+    2.  调用了 `BroadcastChannel` 实例自身的 `close()` 方法。
+  - **下一步**: 请求用户提供上述两个 transport 的源码，以便进行详细检查。
+
+## 2025-05-09 22:45:20 (织)
+- **深入探讨 Transport "串台"问题与 1:1 连接的必要性**:
+  - 用户进一步指出，串台问题可能源于 Transport 未实现严格的 1:1 连接，例如缺少类似会话ID的机制。
+  - **针对 BroadcastChannel 的分析**:
+    - `BroadcastChannel` API 基于共享的频道名称通信，本身并非严格 1:1。
+    - MCP/JSON-RPC的 `id` 字段能确保请求和响应的配对，客户端可以忽略不属于自己的响应。
+    - 但如果多个服务端实例监听同一频道，它们都可能收到同一个请求。如果多个客户端实例监听，也可能都收到同一个回复（尽管只有发起请求的客户端会处理它）。
+    - 要实现严格的 1:1，可能需要在 Transport 层面为每个连接对生成唯一的频道名，或在消息信封中加入会话标识，并在接收端校验。
+  - **针对 WebRTC 的分析**:
+    - `RTCPeerConnection` 设计上是 1:1 的，信令交换成功后建立的是点对点连接。
+    - 只要实例管理和信令正确配对，WebRTC 本身不太可能因缺少会话ID而串台。
+  - **当前测试脚本的串台疑虑**:
+    - **疑虑1 (资源未释放)**: 前一个测试（BroadcastChannel）的 Transport 未完全关闭，其监听器仍在活动，可能接收或干扰后续测试（WebRTC）的消息。这是目前的主要怀疑方向。
+    - **疑虑2 (BroadcastChannel 的非独占性)**: 如果测试脚本（或被测库的更深层）意外地创建了多个 BroadcastChannel 实例监听同一个频道，即使 MCP 的 `id` 能区分响应，也可能导致不必要的重复消息处理或日志干扰。
+  - **行动计划调整**: 
+    1.  **首要**: 仍然需要检查 `BroadcastChannelClientTransport.ts` 和 `BroadcastChannelServerTransport.ts` 的 `close()` 方法，确保资源（特别是 `BroadcastChannel` 实例和其消息监听器）被彻底清理。
+    2.  如果资源清理无误，再审视 BroadcastChannel Transport 是否需要更强的会话隔离机制来满足测试或应用场景的需求。
+    3.  同时，再次确认 WebRTC 部分的实例创建和信令传递逻辑，确保没有意外的交叉。 
+
+## 2025-05-09 22:47:17 (织)
+- **BroadcastChannel Transport 源码审查结论与串台问题再分析**:
+  - **审查结果**: `BroadcastChannelClientTransport.ts` 和 `BroadcastChannelServerTransport.ts` 的 `close()` 方法实现正确，均包含了移除 `onmessage` 监听器和调用 `BroadcastChannel` 实例的 `close()` 方法。
+  - **初步结论**: 从代码上看，BroadcastChannel Transport 的资源释放是到位的，理论上第一个测试结束后不应干扰第二个测试。
+  - **对"串台"现象的进一步思考**:
+    1.  **需要具体现象**: 请求用户提供更详细的串台日志或描述，以便准确定位。
+    2.  **BroadcastChannel 的 inherent N:M 特性**: 如果在同一频道名下意外地同时存在多个活跃的 transport 实例，即使JSON-RPC的 `id` 能区分响应，也可能在日志中观察到消息被多个实例接收，造成串台错觉。
+    3.  `BroadcastChannelServerTransport` 中的 `_instanceId` 目前仅为属性，未用于消息过滤。如果需要严格的1:1模拟，可以考虑将其用于消息信封或动态生成唯一频道名。
+    4.  WebRTC 本身为1:1，串台可能性较低，除非实例管理有误。
+  - **下一步**: 
+    1.  等待用户提供具体的串台现象描述。
+    2.  再次审视 `test-transports.js` 中 transport 实例的创建和销毁逻辑，确保独立性。 
+
+## 2025-05-09 22:48:44 (织)
+- **澄清"串台"疑虑：原理上同类型 Transport 的会话隔离问题**:
+  - 用户明确"串台"并非指当前测试中的实际错误，而是对同类型 Transport 在同一环境下并发使用时，因缺少会话隔离机制可能导致消息串扰的原理性担忧。
+  - **BroadcastChannel Transport 分析**:
+    - **原理**: 基于共享频道名，是 N:M 通信，确有串台风险。多个同名频道的客户端/服务器实例会接收到彼此的消息。
+    - **JSON-RPC `id`**: 能帮助客户端匹配响应，但不能阻止服务器接收重复请求或多个客户端接收同一响应（尽管只有正确的会处理）。
+    - **隔离方案**: 
+      1.  **唯一频道名**: 为每个1:1会话生成独特频道名 (最彻底，管理复杂)。
+      2.  **消息内嵌会话/实例ID**: Transport 层在消息中嵌入唯一标识（如 `_instanceId`），并在接收时过滤。客户端和服务端均需实现。
+  - **WebRTC Transport 分析**:
+    - **原理**: `RTCPeerConnection` 是1:1的。只要信令正确配对且实例不被错误重用，其隔离性较好，不太需要额外的 transport 层会话ID。
+    - **潜在风险**: 信令服务器的错误广播（非 transport 问题）或应用层对 transport 实例的错误管理。
+  - **结论与建议**:
+    1.  **BroadcastChannel**: 需要认真考虑会话隔离。是依赖上层（如唯一频道名约定）还是在 Transport 层实现（如基于 `_instanceId` 的消息过滤）取决于应用需求。
+    2.  **WebRTC**: 隔离性较好，当前实现基本满足1:1通信。
+    3.  **当前测试脚本**: 因顺序执行和新实例创建，跨类型的串台主要风险在于资源释放（目前看 `BroadcastChannelTransport.close()` 是合格的）。同类型并发测试时，BroadcastChannel 的 N:M 特性需要注意。 
+
+## 2025-05-09 22:52:39 (织)
+- **为 BroadcastChannel Transport 实现会话隔离 (消息信封与实例ID)**:
+  - **目标**: 解决原理上多个同名 BroadcastChannel Transport 实例可能发生消息串扰的问题。
+  - **核心机制**: 引入消息信封，内含协议标识、源实例ID和目标实例ID (用于S2C)，确保消息的定向传递和接收。
+  - **`braodCastChannelTransportClient.ts` (客户端) 修改**:
+    1.  添加 `_instanceId` (使用 `crypto.randomUUID()`)。
+    2.  `send()`: 将 JSON-RPC 消息包装在 `ClientToServerEnvelope { protocol, sourceId, payload }` 中发送。
+    3.  `onmessage` (内部): 接收消息时，校验是否为 `ServerToClientEnvelope`，且 `targetId` 是否匹配自身 `_instanceId`。匹配则处理 `payload`，否则忽略。
+  - **`broadCastChannelTransportServer.ts` (服务器端) 修改**:
+    1.  `_instanceId` 已存在 (使用 `crypto.randomUUID()`)。
+    2.  `onmessage` (内部消息处理回调): 
+        -   接收消息时，校验是否为 `ClientToServerEnvelope`。匹配则提取 `payload` 和 `sourceId` (即 `clientId`)。
+        -   **重要**: 修改了向上层 `HuiMcpServer` 传递消息的回调 `this.onmessage` 的签名，使其能够传递 `clientId`，如 `onmessage(payload, { clientId })`。
+    3.  `send()`: 
+        -   **重要**: 修改了 `send` 方法签名，增加 `targetClientId: string` 参数。
+        -   将 JSON-RPC 消息包装在 `ServerToClientEnvelope { protocol, sourceId (server's), targetId (client's), payload }` 中发送。
+  - **对上层代码 (HuiMcpServer, test-transports.js) 的影响 (待处理)**:
+    -   `HuiMcpServer` (或其 `ProtocolProcessor`) 需适配新的 `transport.onmessage` 签名，以接收并存储 `clientId`。
+    -   `HuiMcpServer` 在发送响应时，需将存储的 `clientId` 传递给新的 `transport.send(message, targetClientId)` 签名。
+    -   测试脚本中设置服务器如何发送数据部分也需相应调整。
+  - **状态**: Transport 层已具备会话隔离能力，等待上层适配后进行完整测试。 

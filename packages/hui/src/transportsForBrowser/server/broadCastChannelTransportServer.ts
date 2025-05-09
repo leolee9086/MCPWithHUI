@@ -8,6 +8,8 @@ import { JSONRPCMessageSchema } from "@modelcontextprotocol/sdk/types.js";
 
 type JSONRPCMessage = z.infer<typeof JSONRPCMessageSchema>;
 
+// 织：不再需要信封定义，因为现在是1:1的专属频道
+
 /**
  * Error class for BroadcastChannelServerTransport specific errors.
  */
@@ -24,97 +26,101 @@ export class BroadcastChannelServerError extends Error {
 }
 
 /**
- * Server-like transport for BroadcastChannel. It doesn't act as a traditional server
- * with network listeners, but rather as a designated peer in a BroadcastChannel communication,
- * mimicking the API style of SSEServerTransport where applicable.
- *
- * This transport is intended for browser environments.
+ * Server-like transport for BroadcastChannel. 
+ * This transport INSTANCE represents a 1:1 session with a specific client on a dedicated channel.
+ * It does not handle session discovery; that should be managed by a higher-level coordinator.
  */
 export class BroadcastChannelServerTransport {
-    private _channelName: string;
+    private _sessionChannelName: string;
+    private _sessionId: string;
     private _channel?: BroadcastChannel;
-    private _instanceId: string; // Mimics SSEServerTransport's sessionId
+    // 织: _pendingRequests 已移除，因为 transport 实例现在是会话专用的
 
-    public onmessage?: (message: JSONRPCMessage) => void;
+    public onmessage?: (message: JSONRPCMessage) => void; // 织: 恢复到HuiMcpServer期望的简单签名
     public onerror?: (error: Error) => void;
     public onclose?: () => void;
 
     /**
-     * Creates an instance of BroadcastChannelServerTransport.
-     * @param channelName The name of the broadcast channel.
-     * @throws {BroadcastChannelServerError} If BroadcastChannel API or crypto.randomUUID is not available, or if channelName is invalid.
+     * Creates an instance of BroadcastChannelServerTransport for an established session.
+     * @param sessionChannelName The name of the dedicated broadcast channel for this session.
+     * @param sessionId The unique ID for this session.
+     * @throws {BroadcastChannelServerError} If BroadcastChannel API is not available, or if parameters are invalid.
      */
-    constructor(channelName: string) {
+    constructor(sessionChannelName: string, sessionId: string) {
         if (typeof BroadcastChannel === "undefined") {
             throw new BroadcastChannelServerError("BroadcastChannel API is not available in this environment.");
         }
-        if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') {
-            throw new BroadcastChannelServerError("crypto.randomUUID() is not available in this environment for instanceId generation.");
+        if (!sessionChannelName || typeof sessionChannelName !== 'string' || sessionChannelName.trim() === '') {
+            throw new BroadcastChannelServerError("Session channel name must be a non-empty string.");
         }
-        if (!channelName || typeof channelName !== 'string' || channelName.trim() === '') {
-            throw new BroadcastChannelServerError("Channel name must be a non-empty string.");
+        if (!sessionId || typeof sessionId !== 'string' || sessionId.trim() === '') {
+            throw new BroadcastChannelServerError("Session ID must be a non-empty string.");
         }
 
-        this._channelName = channelName;
-        this._instanceId = crypto.randomUUID();
+        this._sessionChannelName = sessionChannelName;
+        this._sessionId = sessionId;
+        console.log(`[BCServerTransport SID: ${this._sessionId}] Initialized for session channel: ${this._sessionChannelName}`);
     }
 
     /**
-     * Gets the unique instance ID for this transport instance.
-     * Mimics the `sessionId` getter in SSEServerTransport.
+     * Gets the unique session ID for this transport instance.
      */
-    public get instanceId(): string {
-        return this._instanceId;
+    public get sessionId(): string {
+        return this._sessionId;
     }
 
     /**
-     * Starts the transport. Initializes the BroadcastChannel and sets up message listeners.
+     * Starts the transport. Initializes the session-specific BroadcastChannel and sets up message listeners.
      * @returns {Promise<void>} A promise that resolves when the channel is ready to listen.
      * @throws {Error} If the transport is already started.
      */
     public async start(): Promise<void> {
         if (this._channel) {
-            throw new Error("BroadcastChannelServerTransport already started!");
+            throw new Error(`BroadcastChannelServerTransport (SID: ${this._sessionId}) already started!`);
         }
+        console.log(`[BCServerTransport SID: ${this._sessionId}] Starting on channel: ${this._sessionChannelName}...`);
 
         return new Promise<void>((resolve, reject) => {
             try {
-                this._channel = new BroadcastChannel(this._channelName);
+                this._channel = new BroadcastChannel(this._sessionChannelName); // This could throw
 
                 this._channel.onmessage = (event: MessageEvent) => {
                     if (!this.onmessage) {
                         return;
                     }
-
-                    const messageData = event.data;
-                    let parsedMessage: JSONRPCMessage;
-
                     try {
-                        if (typeof messageData !== 'string') {
-                            throw new BroadcastChannelServerError("Received non-string message data. Expected JSON string.", undefined, messageData);
-                        }
-                        const rawMessage = JSON.parse(messageData);
-                        console.log(`[BCServerTransport] Received raw message:`, JSON.stringify(rawMessage, null, 2));
-                        parsedMessage = JSONRPCMessageSchema.parse(rawMessage);
-                        console.log(`[BCServerTransport] Received message:`, JSON.stringify(parsedMessage, null, 2));
+                        const jsonRpcPayload = JSON.parse(event.data as string) as JSONRPCMessage;
+                        JSONRPCMessageSchema.parse(jsonRpcPayload); // Validate payload
+
+                        console.log(`[BCServerTransport SID: ${this._sessionId}] Received message on ${this._sessionChannelName}:`, JSON.stringify(jsonRpcPayload, null, 2));
+                        this.onmessage(jsonRpcPayload); // Directly pass to HuiMcpServer
+
                     } catch (error) {
                         const err = error instanceof Error ? error : new Error(String(error));
-                        const wrappedError = new BroadcastChannelServerError(`Failed to parse incoming message: ${err.message}`, undefined, err);
+                        console.error(`[BCServerTransport SID: ${this._sessionId}] Error processing message on ${this._sessionChannelName}. Raw:`, event.data, err);
+                        const wrappedError = new BroadcastChannelServerError(`Failed to parse/validate incoming message: ${err.message}`, undefined, err);
                         if (this.onerror) {
                             this.onerror(wrappedError);
                         } else {
-                            console.error(wrappedError); // Fallback
+                            console.error(wrappedError);
                         }
-                        return;
                     }
-                    this.onmessage(parsedMessage);
+                };
+
+                this._channel.onmessageerror = (event: MessageEvent) => { // 织: 捕获消息反序列化错误
+                    const errText = event.data ? `Message data: ${JSON.stringify(event.data)}` : "Unknown message error";
+                    const wrappedError = new BroadcastChannelServerError(`Message error on session channel ${this._sessionChannelName}: ${errText}`, undefined, event);
+                    console.error(`[BCServerTransport SID: ${this._sessionId}] ${wrappedError.message}`, event);
+                    if (this.onerror) {
+                        this.onerror(wrappedError);
+                    }
                 };
                 
-                // Unlike SSEServerTransport, there's no equivalent of sending an "endpoint" event to the client.
-                // The channel is simply open for messages.
+                console.log(`[BCServerTransport SID: ${this._sessionId}] Started and listening on channel: ${this._sessionChannelName}`);
                 resolve();
             } catch (error) { 
                 const err = error instanceof Error ? error : new BroadcastChannelServerError(String(error));
+                console.error(`[BCServerTransport SID: ${this._sessionId}] Failed to start on channel ${this._sessionChannelName}: ${err.message}`, err);
                  if (this.onerror) {
                     this.onerror(err);
                 } else {
@@ -126,47 +132,48 @@ export class BroadcastChannelServerTransport {
     }
 
     /**
-     * Sends a JSONRPCMessage over the BroadcastChannel.
+     * Sends a JSONRPCMessage over the session BroadcastChannel.
      * The message is stringified before sending.
      * @param {JSONRPCMessage} message The message to send.
      * @returns {Promise<void>} A promise that resolves when the message is posted.
      * @throws {BroadcastChannelServerError} If the transport is not started or if sending fails.
      */
-    public async send(message: JSONRPCMessage): Promise<void> {
+    public async send(message: JSONRPCMessage): Promise<void> { // 织: 恢复简单签名
         if (!this._channel) {
-            throw new BroadcastChannelServerError("Transport not started or channel is closed. Cannot send message.");
+            throw new BroadcastChannelServerError(`Transport not started or channel closed (SID: ${this._sessionId}). Cannot send message.`);
         }
 
         try {
-            // Validate message before sending (optional, but good practice)
-            // JSONRPCMessageSchema.parse(message); 
             const messageString = JSON.stringify(message);
+            console.log(`[BCServerTransport SID: ${this._sessionId}] Sending message on ${this._sessionChannelName}:`, messageString);
             this._channel.postMessage(messageString);
         } catch (error) {
             const err = error instanceof Error ? error : new Error(String(error));
-            const wrappedError = new BroadcastChannelServerError(`Failed to send message: ${err.message}`, undefined, err);
+            const wrappedError = new BroadcastChannelServerError(`Failed to send message (SID: ${this._sessionId}): ${err.message}`, undefined, err);
             if (this.onerror) {
                 this.onerror(wrappedError);
             }
-            // Re-throw, consistent with how SSEServerTransport might handle send errors if they occurred post-connection.
             throw wrappedError; 
         }
         return Promise.resolve();
     }
 
     /**
-     * Closes the transport. Closes the BroadcastChannel and removes listeners.
+     * Closes the transport. Closes the session BroadcastChannel and removes listeners.
      * @returns {Promise<void>} A promise that resolves when the channel is closed.
      */
     public async close(): Promise<void> {
+        console.log(`[BCServerTransport SID: ${this._sessionId}] Closing channel ${this._sessionChannelName}...`);
         if (this._channel) {
             this._channel.onmessage = null; 
+            this._channel.onmessageerror = null; // 织: 清理 onmessageerror
             this._channel.close();
             this._channel = undefined;
         }
         if (this.onclose) {
             this.onclose();
         }
+        console.log(`[BCServerTransport SID: ${this._sessionId}] Closed channel ${this._sessionChannelName}.`);
         return Promise.resolve();
     }
 }

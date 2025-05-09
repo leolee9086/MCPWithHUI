@@ -92,38 +92,100 @@ const echoTool = {
 // ====================================
 // BroadcastChannel Test
 // ====================================
+
+// 织: 定义与客户端一致的发现协议常量和类型 (仅用于测试脚本内部模拟)
+const MCP_DISCOVERY_PROTOCOL_TEST = 'mcp-discovery-v1'; 
+// type SessionRequestMessage_Test = { protocol: string, type: 'request-session', clientIdHint: string };
+// type SessionResponseMessage_Test = { protocol: string, type: 'session-granted', clientIdHint?: string, sessionId: string, sessionChannelName: string };
+
 async function testBroadcastChannel() {
     const statusEl = 'broadcast-status';
     const logEl = 'broadcast-log';
-    updateStatus(statusEl, null, 'BroadcastChannel Test starting...');
-    appendLog(logEl, '--- BroadcastChannel Test ---');
+    updateStatus(statusEl, null, 'BroadcastChannel Test starting (with session discovery)...');
+    appendLog(logEl, '--- BroadcastChannel Test (Session Discovery) ---');
 
-    const CHANNEL_NAME = 'mcp-test-broadcast-channel';
+    const DISCOVERY_CHANNEL_NAME = 'mcp-test-discovery-channel-' + Date.now(); // Make it unique per test run to avoid clashes
+    let discoveryListenerChannel; // For the server-side discovery listener
+    let bcServer; // Will hold the HuiMcpServer for the session
+    let bcServerTransport; // Will hold the server transport for the session
+    let bcClient; // Will hold the HuiMcpClient
+    let bcClientTransport; // Will hold the client transport
 
     try {
-        // Server Part
-        appendLog(logEl, '[BC Server] Initializing...');
-        const bcServer = new HuiMcpServer(serverInfo);
-        bcServer.tool(
-            echoTool.name, 
-            echoTool.description, 
-            echoTool.inputSchema, 
-            echoTool.execute
-        );
-        const bcServerTransport = new BroadcastChannelServerTransport(CHANNEL_NAME);
-        bcServerTransport.onerror = (err) => appendLog(logEl, `[BC Server Transport Error] ${err.message}`);
-        bcServerTransport.onclose = () => appendLog(logEl, '[BC Server Transport] Closed.');
-        await bcServer.connect(bcServerTransport);
-        appendLog(logEl, '[BC Server] Ready and listening (transport started by server.connect).');
+        // Server-Side: Setup Discovery Listener
+        appendLog(logEl, `[BC Discovery Server] Initializing listener on: ${DISCOVERY_CHANNEL_NAME}`);
+        discoveryListenerChannel = new BroadcastChannel(DISCOVERY_CHANNEL_NAME);
 
-        // Client Part
-        appendLog(logEl, '[BC Client] Initializing...');
-        const bcClient = new HuiMcpClient(clientInfo);
-        const bcClientTransport = new BroadcastChannelClientTransport(CHANNEL_NAME);
+        const serverSessionPromise = new Promise((resolveSession, rejectSession) => {
+            discoveryListenerChannel.onmessage = async (event) => {
+                try {
+                    const request = JSON.parse(event.data);
+                    appendLog(logEl, `[BC Discovery Server] Received on discovery: ${JSON.stringify(request)}`);
+
+                    if (request.protocol === MCP_DISCOVERY_PROTOCOL_TEST && request.type === 'request-session' && request.clientIdHint) {
+                        appendLog(logEl, `[BC Discovery Server] Valid session request from ${request.clientIdHint}. Granting session.`);
+                        
+                        const sessionId = crypto.randomUUID();
+                        const sessionChannelName = `mcp-session-${sessionId}`;
+
+                        // Create HuiMcpServer and its dedicated transport for this session
+                        bcServer = new HuiMcpServer(serverInfo);
+                        bcServer.tool(
+                            echoTool.name, 
+                            echoTool.description, 
+                            echoTool.inputSchema, 
+                            echoTool.execute
+                        );
+                        // 织: Server transport now takes sessionChannelName and sessionId
+                        bcServerTransport = new BroadcastChannelServerTransport(sessionChannelName, sessionId);
+                        bcServerTransport.onerror = (err) => appendLog(logEl, `[BC Session Server Transport SID: ${sessionId} Error] ${err.message}`);
+                        bcServerTransport.onclose = () => appendLog(logEl, `[BC Session Server Transport SID: ${sessionId}] Closed.`);
+                        
+                        await bcServer.connect(bcServerTransport);
+                        appendLog(logEl, `[BC Session Server SID: ${sessionId}] Ready on channel ${sessionChannelName}.`);
+
+                        const responseMsg = {
+                            protocol: MCP_DISCOVERY_PROTOCOL_TEST,
+                            type: 'session-granted',
+                            clientIdHint: request.clientIdHint,
+                            sessionId: sessionId,
+                            sessionChannelName: sessionChannelName
+                        };
+                        appendLog(logEl, `[BC Discovery Server] Sending session grant to ${request.clientIdHint}: ${JSON.stringify(responseMsg)}`);
+                        discoveryListenerChannel.postMessage(JSON.stringify(responseMsg));
+                        
+                        // Discovery part is done for this server, resolve the promise for cleanup later
+                        resolveSession({ server: bcServer, transport: bcServerTransport }); 
+
+                        // Optional: Close discovery channel after one successful session grant for this test
+                        // discoveryListenerChannel.close();
+                        // discoveryListenerChannel = null;
+                        // appendLog(logEl, '[BC Discovery Server] Listener closed after granting session.');
+                    } else {
+                        appendLog(logEl, `[BC Discovery Server] Ignored irrelevant message on discovery: ${event.data}`);
+                    }
+                } catch (e) {
+                    const errorMsg = e instanceof Error ? e.message : String(e);
+                    appendLog(logEl, `[BC Discovery Server] Error processing discovery message: ${errorMsg}`);
+                    rejectSession(new Error(`Discovery server processing error: ${errorMsg}`));
+                }
+            };
+            discoveryListenerChannel.onmessageerror = (event) => {
+                 appendLog(logEl, `[BC Discovery Server] Message error on discovery channel: ${JSON.stringify(event.data)}`);
+                 // Potentially rejectSession or log more verbosely
+            };
+        });
+
+        // Client Part: Connect using discovery
+        appendLog(logEl, `[BC Client] Initializing with discovery channel: ${DISCOVERY_CHANNEL_NAME}`);
+        // 织: Client transport now takes discoveryChannelName
+        bcClientTransport = new BroadcastChannelClientTransport(DISCOVERY_CHANNEL_NAME, 15000); // 15s timeout for session
         bcClientTransport.onerror = (err) => appendLog(logEl, `[BC Client Transport Error] ${err.message}`);
-        bcClientTransport.onclose = () => appendLog(logEl, '[BC Client Transport] Closed.');
-        await bcClient.connect(bcClientTransport);
-        appendLog(logEl, '[BC Client] Connected (transport started by client.connect).');
+        bcClientTransport.onclose = () => appendLog(logEl, `[BC Client Transport] Closed.`);
+        
+        bcClient = new HuiMcpClient(clientInfo);
+        await bcClient.connect(bcClientTransport); // This will internally call establishSession then start
+        appendLog(logEl, `[BC Client] Session established (SID: ${bcClientTransport.getSessionId()}) and connected.`);
 
         // Test: listTools
         appendLog(logEl, '[BC Client] Calling listTools...');
@@ -157,10 +219,21 @@ async function testBroadcastChannel() {
         updateStatus(statusEl, true, 'BroadcastChannel Test PASSED!');
         
         // Cleanup
-        await bcClient.close();
-        await bcServer.close(); // This should also close the server transport
-        // bcClientTransport.close(); // client.close() should handle this
-        // bcServerTransport.close(); // server.close() should handle this
+        appendLog(logEl, '[BC Test] Starting cleanup...');
+        if (bcClient) await bcClient.close(); // Should close client transport
+        appendLog(logEl, '[BC Test] Client closed.');
+        
+        // Wait for server resources created in discovery to be available for cleanup
+        const sessionServerResources = await serverSessionPromise; 
+        if (sessionServerResources && sessionServerResources.server) await sessionServerResources.server.close(); // Should close server transport
+        appendLog(logEl, '[BC Test] Session Server closed.');
+
+        if (discoveryListenerChannel) {
+            discoveryListenerChannel.onmessage = null;
+            discoveryListenerChannel.onmessageerror = null;
+            discoveryListenerChannel.close();
+            appendLog(logEl, '[BC Test] Discovery listener channel closed.');
+        }
 
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
