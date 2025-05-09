@@ -9,6 +9,7 @@ import zodToJsonSchemaLib from 'zod-to-json-schema';
 
 // Import from local shared file with extension
 import { HuiActionDefinition, HuiInputHint, HuiRenderingHints, HUI_META_TOOL_NAME } from './shared/types.js';
+import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 // --- HuiMcpServer Class Definition ---
 // This is the main export of this package
@@ -21,7 +22,9 @@ export class HuiMcpServer extends McpServer {
         this.registerMetaTool();
         this.registerGetToolTypeDefinitionMetaTool();
     }
-
+    connect(transport: Transport): Promise<void> {
+        return super.connect(transport);
+    }
     // Custom method to register a tool along with its HUI definition
     huiTool<InputSchema extends ZodRawShape, OutputResult>(
         name: string,

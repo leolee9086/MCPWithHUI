@@ -1,0 +1,18 @@
+{
+  "name": "mcp-allinbrowser-test",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "@mcpwithhui/hui": "file:../packages/hui",
+    "zod": "3.23.8"
+  }
+}

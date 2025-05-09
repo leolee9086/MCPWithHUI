@@ -169,6 +169,112 @@ mcpServer.registerAction(myCustomTool);
 pnpm install
 ```
 
+由于官方SDK中使用了instanceOf来进行zodType的相关判断,如果你的项目从多个路径引入了zod,可能会造成一些奇奇怪怪的问题,临时解决方式是修改`sdk/dist/esm(cjs)/server/mcp.js`中的这个判断函数:
+
+```
+ // Helper to check if an object is a Zod schema (ZodRawShape)
+        const isZodRawShape = (obj) => {
+            if (typeof obj !== "object" || obj === null)
+                return false;
+            // Check that at least one property is a ZodType instance
+            return Object.values(obj).some(v => v?._def?.typeName);
+        };
+```
+
+### Q: SSE连接方式总是出现timeout错误怎么办?
+
+client端可能会在服务端长时间没有推送消息时断开SSE连接,此时你可以每隔约25s向客户端发送保活消息:
+
+```
+// --- Legacy SSE Connection Endpoint (GET /sse) ---
+app.get('/sse', simpleAuthMiddleware, async (req: Request, res: Response) => {
+    console.log(`[HTTP GET /sse] Received legacy SSE request for ${req.url}.`);
+    
+    const acceptHeader = req.headers.accept;
+    if (!(acceptHeader?.includes("text/event-stream"))) {
+        console.error('[HTTP GET /sse] Rejected: Client does not accept text/event-stream.');
+        res.status(406).json({ error: 'Not Acceptable: Client must accept text/event-stream' });
+        return;
+    }
+
+    console.log('[HTTP GET /sse] Creating new SSEServerTransport for legacy client...');
+    let keepAliveIntervalId: NodeJS.Timeout | undefined = undefined; // 织: Declare interval ID
+
+    try {
+        const sseTransport = new SSEServerTransport(SSE_POST_ENDPOINT_PATH, res); // SSE transport tells client to POST here
+        const sessionId = sseTransport.sessionId;
+        console.log(`[HTTP GET /sse] Created SSEServerTransport with Session ID: ${sessionId}`);
+
+        // 织: 为新的 SSE 会话创建独立的 HuiMcpServer 实例
+        const sessionServer = new HuiMcpServer(sharedHuiServerConfig);
+        registerAllTools(sessionServer); // 向新实例注册工具
+        console.log(`[HTTP GET /sse] Created new HuiMcpServer instance for Session ID: ${sessionId}`);
+
+        activeSseSessions.set(sessionId, { transport: sseTransport, server: sessionServer });
+        console.log(`[HTTP GET /sse] Stored legacy SSE session for Session ID: ${sessionId}. Active SSE sessions: ${activeSseSessions.size}`);
+
+        // 织: Start keep-alive ping
+        keepAliveIntervalId = setInterval(() => {
+            if (!res.writableEnded) {
+                res.write(': keepalive\n\n'); // Standard SSE comment for keep-alive
+                console.log(`[HTTP GET /sse] Sent keep-alive ping for session: ${sessionId}`);
+            } else {
+                // Should not happen if close handler is working correctly, but clear just in case
+                if (keepAliveIntervalId) {
+                    clearInterval(keepAliveIntervalId);
+                    keepAliveIntervalId = undefined;
+                    console.log(`[HTTP GET /sse] Cleared keep-alive (writableEnded) for session: ${sessionId}`);
+                }
+            }
+        }, KEEP_ALIVE_INTERVAL_MS);
+        console.log(`[HTTP GET /sse] Started keep-alive mechanism for session: ${sessionId}`);
+
+
+        res.on('close', async () => { // 织: 添加 async
+            console.log(`[HTTP GET /sse] Legacy client disconnected (Session: ${sessionId}). Cleaning up.`);
+            // 织: Clear keep-alive interval
+            if (keepAliveIntervalId) {
+                clearInterval(keepAliveIntervalId);
+                keepAliveIntervalId = undefined;
+                console.log(`[HTTP GET /sse] Cleared keep-alive interval for session: ${sessionId}`);
+            }
+            const sessionData = activeSseSessions.get(sessionId);
+            if (sessionData) {
+                try {
+                    await sessionData.server.close(); // 织: 关闭对应的 HuiMcpServer 实例
+                    console.log(`[HTTP GET /sse] Closed HuiMcpServer for session: ${sessionId}`);
+                } catch (serverCloseError) {
+                    console.error(`[HTTP GET /sse] Error closing HuiMcpServer for session ${sessionId}:`, serverCloseError);
+                }
+            }
+            activeSseSessions.delete(sessionId);
+            sseTransport.close(); // Ensure transport resources are released
+            console.log(`[HTTP GET /sse] Removed legacy SSE session for Session ID: ${sessionId}. Active SSE sessions: ${activeSseSessions.size}`);
+        });
+
+        // Connect to the new session-specific HuiMcpServer instance
+        await sessionServer.connect(sseTransport); // This should call sseTransport.start()
+        console.log(`[HTTP GET /sse] Legacy SSEServerTransport (Session: ${sessionId}) connected to its session-specific huiMcpServer. SSE stream started.`);
+
+
+    } catch (error: any) {
+        console.error('[HTTP GET /sse] Error during legacy SSE setup:', error);
+        // 织: Clear keep-alive interval on error too
+        if (keepAliveIntervalId) {
+            clearInterval(keepAliveIntervalId);
+            keepAliveIntervalId = undefined;
+            console.log(`[HTTP GET /sse] Cleared keep-alive interval due to error during setup.`);
+        }
+        if (!res.headersSent) {
+             res.status(500).json({ error: 'Failed to initialize legacy SSE connection' });
+        } else {
+             console.error('[HTTP GET /sse] Headers already sent for legacy SSE, cannot send JSON error response.');
+             res.end();
+        }
+    }
+});
+```
+
 ### Q: 如何调试服务器？
 
 可以通过以下命令运行并调试服务器：
@@ -176,6 +282,11 @@ pnpm install
 ```bash
 # 在server目录运行
 pnpm dev
+```
+
+或者在根目录:
+```bash
+pnpm dev:server
 ```
 
 然后可以使用IDE的调试工具连接到Node.js进程。

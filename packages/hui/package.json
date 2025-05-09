@@ -8,7 +8,15 @@
     "./client": "./dist/client/HuiMcpClient.js",
     "./client-browser": "./dist/browser/hui-client.esm.js",
     "./server": "./dist/server.js",
-    "./shared": "./dist/shared/types.js"
+    "./shared": "./dist/shared/types.js",
+    "./dist/browser/mcp-hui-broadcastchannel-client.esm.js": "./dist/browser/mcp-hui-broadcastchannel-client.esm.js",
+    "./dist/browser/mcp-hui-broadcastchannel-server.esm.js": "./dist/browser/mcp-hui-broadcastchannel-server.esm.js",
+    "./dist/browser/mcp-hui-webrtc-client.esm.js": "./dist/browser/mcp-hui-webrtc-client.esm.js",
+    "./dist/browser/mcp-hui-webrtc-server.esm.js": "./dist/browser/mcp-hui-webrtc-server.esm.js",
+    "./dist/browser/mcp-sdk-streamableHttp.esm.js": "./dist/browser/mcp-sdk-streamableHttp.esm.js",
+    "./dist/browser/hui-server.esm.js": "./dist/browser/hui-server.esm.js",
+    "./dist/browser/hui-client.esm.js": "./dist/browser/hui-client.esm.js",
+    "./dist/browser/mcp-sdk-sse.esm.js": "./dist/browser/mcp-sdk-sse.esm.js"
   },
   "typesVersions": {
     "*": {
@@ -29,7 +37,11 @@
 
     "build:transport:http": "esbuild node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js --bundle --outfile=dist/browser/mcp-sdk-streamableHttp.esm.js --format=esm --platform=browser --sourcemap",
     "build:transport:sse": "esbuild node_modules/@modelcontextprotocol/sdk/dist/esm/client/sse.js --bundle --outfile=dist/browser/mcp-sdk-sse.esm.js --format=esm --platform=browser --sourcemap",
-    "build": "npm run build:tsc && npm run build:client:esm && npm run build:transport:http && npm run build:transport:sse",
+    "build:transport:broadcastchannel:client": "esbuild src/transportsForBrowser/client/braodCastChannelTransportClient.ts --bundle --outfile=dist/browser/mcp-hui-broadcastchannel-client.esm.js --format=esm --platform=browser --sourcemap",
+    "build:transport:broadcastchannel:server": "esbuild src/transportsForBrowser/server/broadCastChannelTransportServer.ts --bundle --outfile=dist/browser/mcp-hui-broadcastchannel-server.esm.js --format=esm --platform=browser --sourcemap",
+    "build:transport:webrtc:client": "esbuild src/transportsForBrowser/client/webRTCClientTransport.ts --bundle --outfile=dist/browser/mcp-hui-webrtc-client.esm.js --format=esm --platform=browser --sourcemap",
+    "build:transport:webrtc:server": "esbuild src/transportsForBrowser/server/webRTCServerTransport.ts --bundle --outfile=dist/browser/mcp-hui-webrtc-server.esm.js --format=esm --platform=browser --sourcemap",
+    "build": "npm run build:tsc && npm run build:client:esm && npm run build:transport:http && npm run build:transport:sse && npm run build:transport:broadcastchannel:client && npm run build:transport:broadcastchannel:server && npm run build:transport:webrtc:client && npm run build:transport:webrtc:server",
     "dev": "tsc --watch",
     "start": "node dist/server.js"
   },
