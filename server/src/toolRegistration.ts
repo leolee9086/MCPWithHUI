@@ -28,6 +28,13 @@ import {
     findMyNotesHandler
 } from './tools/siyuan.js';
 
+// 导入新的生活日志工具
+import {
+    findBlocksWithLifelogTypeInputRawShape,
+    findBlocksWithLifelogTypeHuiHints,
+    findBlocksWithLifelogTypeHandler
+} from './tools/lifelog.js';
+
 // 织：导入新的网络工具
 import {
     getWebpageContentInputRawShape,
@@ -309,6 +316,15 @@ connectAndListTools().catch(console.error);
 
       return { content: [{ type: 'text', text: usageInstructions }] };
     }
+  );
+
+  // 注册生活日志工具
+  huiMcpServer.huiTool(
+    'findBlocksWithLifelogType',
+    '查询所有包含custom-lifelog-type属性的块',
+    findBlocksWithLifelogTypeInputRawShape,
+    findBlocksWithLifelogTypeHuiHints,
+    findBlocksWithLifelogTypeHandler
   );
 
   console.log('[ToolRegistration] All tools, including meta-tools, registered on huiMcpServer.');
