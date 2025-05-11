@@ -12,6 +12,23 @@ import type { HuiRenderingHints as ImportedHuiRenderingHints } from '@mcpwithhui
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// 织：顶层辅助函数 - 缩短API Token用于日志输出
+function apiTokenShort(token: string | undefined): string {
+    if (!token) return 'N/A';
+    return token.length > 8 ? `${token.substring(0, 5)}...` : token;
+}
+
+// 织：定义标准的MCP输出Zod Schema
+const mcpStandardOutputSchema = z.object({
+    content: z.array(
+        z.object({
+            type: z.string().describe("通常是 'text' 或 'object'"),
+            text: z.string().optional().describe("当 type 为 'text' 时使用"),
+            data: z.any().optional().describe("当 type 为 'object' 时使用")
+        })
+    ).describe("工具输出的主要内容")
+});
+
 interface CurrentHuiRenderingHints extends ImportedHuiRenderingHints {
     category?: string;
     tags?: string[];
@@ -113,7 +130,7 @@ export async function writeToSiyuanDailyNoteHandler(
             data: content,
         };
 
-        console.log(`[HUI Tool:writeToSiyuanDailyNote] 准备发送到思源 API: ${apiUrl}/api/block/appendDailyNoteBlock, Token: ${apiToken ? apiToken.substring(0,5) + '...' : 'N/A'}, Notebook: ${notebookId}, body:`, JSON.stringify(requestBody, null, 2));
+        console.log(`[HUI Tool:writeToSiyuanDailyNote] 准备发送到思源 API: ${apiUrl}/api/block/appendDailyNoteBlock, Token: ${apiTokenShort(apiToken)}, Notebook: ${notebookId}, body:`, JSON.stringify(requestBody, null, 2));
 
         const response = await fetch(`${apiUrl}/api/block/appendDailyNoteBlock`, {
             method: 'POST',
@@ -262,7 +279,7 @@ export async function getSiyuanNotebooksHandler(
     }
 
     try {
-        console.log(`[HUI Tool:getSiyuanNotebooks] 准备调用思源 API: ${apiUrl}/api/notebook/lsNotebooks, Token: ${apiToken ? apiToken.substring(0,5) + '...' : 'N/A'}`);
+        console.log(`[HUI Tool:getSiyuanNotebooks] 准备调用思源 API: ${apiUrl}/api/notebook/lsNotebooks, Token: ${apiTokenShort(apiToken)}`);
 
         const response = await fetch(`${apiUrl}/api/notebook/lsNotebooks`, {
             method: 'POST',
@@ -358,7 +375,7 @@ export async function getSiyuanNoteContentByIdHandler(
             id: noteId,
         };
 
-        console.log(`[HUI Tool:getSiyuanNoteContentById] 准备调用思源 API: ${apiUrl}/api/export/exportMdContent, Token: ${apiToken ? apiToken.substring(0,5) + '...' : 'N/A'}, Body:`, JSON.stringify(requestBody, null, 2));
+        console.log(`[HUI Tool:getSiyuanNoteContentById] 准备调用思源 API: ${apiUrl}/api/export/exportMdContent, Token: ${apiTokenShort(apiToken)}, Body:`, JSON.stringify(requestBody, null, 2));
 
         const response = await fetch(`${apiUrl}/api/export/exportMdContent`, {
             method: 'POST',
@@ -459,7 +476,7 @@ interface SiyuanSearchResultBlock {
 export async function searchSiyuanNotesHandler(
     args: any
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-    const { query, siyuanApiUrl: apiUrlArg, siyuanApiToken: apiTokenArg, kMethod, sortBy, limit, page } = args;
+    const { query, kMethod, sortBy, limit, page, siyuanApiUrl: apiUrlArg, siyuanApiToken: apiTokenArg } = args;
     const fileConfig = loadSiyuanConfigFromFile();
 
     const apiUrl = apiUrlArg || SIYUAN_API_URL_ENV || fileConfig.SIYUAN_API_URL || 'http://127.0.0.1:6806';
@@ -487,7 +504,7 @@ export async function searchSiyuanNotesHandler(
             limit,
         };
 
-        console.log(`[HUI Tool:searchSiyuanNotes] 准备调用思源 API: ${apiUrl}/api/search/fullTextSearchBlock, Token: ${apiToken ? apiToken.substring(0,5) + '...' : 'N/A'}, Body:`, JSON.stringify(requestBody, null, 2));
+        console.log(`[HUI Tool:searchSiyuanNotes] 准备调用思源 API: ${apiUrl}/api/search/fullTextSearchBlock, Token: ${apiTokenShort(apiToken)}, Body:`, JSON.stringify(requestBody, null, 2));
 
         const response = await fetch(`${apiUrl}/api/search/fullTextSearchBlock`, {
             method: 'POST',
@@ -564,10 +581,10 @@ export async function createSiyuanNotebookHandler(
     args: any // Will be typed by z.infer<typeof createSiyuanNotebookInputSchema> by the caller (HuiMcpServer.tool)
 ): Promise<{ content: Array<{ type: 'text'; text: string } & Record<string, unknown>> }> {
     const { name, icon, siyuanApiUrl: apiUrlArg, siyuanApiToken: apiTokenArg } = args;
-    const fileConfig = loadSiyuanConfigFromFile(); // Assumes loadSiyuanConfigFromFile is defined in this file
+    const fileConfig = loadSiyuanConfigFromFile();
 
-    const apiUrl = apiUrlArg || fileConfig.SIYUAN_API_URL || SIYUAN_API_URL_ENV || 'http://127.0.0.1:6806';
-    const apiToken = apiTokenArg || fileConfig.SIYUAN_API_TOKEN || SIYUAN_API_TOKEN_ENV;
+    const apiUrl = apiUrlArg || SIYUAN_API_URL_ENV || fileConfig.SIYUAN_API_URL || 'http://127.0.0.1:6806';
+    const apiToken = apiTokenArg || SIYUAN_API_TOKEN_ENV || fileConfig.SIYUAN_API_TOKEN;
 
     if (!apiToken) {
         console.error('[HUI Tool:createSiyuanNotebook] 错误：API Token 未通过参数、配置文件或环境变量提供。');
@@ -580,7 +597,7 @@ export async function createSiyuanNotebookHandler(
     }
 
     try {
-        console.log(`[HUI Tool:createSiyuanNotebook] 准备调用思源 API: ${apiUrl}/api/notebook/createNotebook, Token: ${apiToken ? apiToken.substring(0, 5) + '...' : 'N/A'}, Body:`, JSON.stringify(requestBody));
+        console.log(`[HUI Tool:createSiyuanNotebook] 准备调用思源 API: ${apiUrl}/api/notebook/createNotebook, Token: ${apiTokenShort(apiToken)}, Body:`, JSON.stringify(requestBody));
 
         const response = await fetch(`${apiUrl}/api/notebook/createNotebook`, {
             method: 'POST',
@@ -604,6 +621,7 @@ export async function createSiyuanNotebookHandler(
         // 根据实际API返回调整，如果API不直接返回创建的笔记本信息，可能需要后续调用 lsNotebooks 或 getNotebookConf
         // 但通常创建操作会返回被创建资源的一些信息。
         // 从 lsNotebooks 的输出来看，data直接就是笔记本对象数组，这里可能是单个对象
+        // 暂时假设 data 是 { notebook: { id: string, name: string, icon: string, ... } } 或直接是 notebook 对象
         // 暂时假设 data 是 { notebook: { id: string, name: string, icon: string, ... } } 或直接是 notebook 对象
         let newNotebookInfo = "";
         if (responseData.data) {
@@ -659,11 +677,11 @@ export const getSiyuanDocsInNotebookHuiHints: CurrentHuiRenderingHints = {
 export async function getSiyuanDocsInNotebookHandler(
     args: any // Typed by z.infer later by HuiMcpServer.tool
 ): Promise<{ content: Array<{ type: 'text'; text: string } & Record<string, unknown>> }> {
-    const { notebookId, path, sort, siyuanApiUrl: apiUrlArg, siyuanApiToken: apiTokenArg } = args;
+    const { notebookId, path: docPath, sort, siyuanApiUrl: apiUrlArg, siyuanApiToken: apiTokenArg } = args;
     const fileConfig = loadSiyuanConfigFromFile();
 
-    const apiUrl = apiUrlArg || fileConfig.SIYUAN_API_URL || SIYUAN_API_URL_ENV || 'http://127.0.0.1:6806';
-    const apiToken = apiTokenArg || fileConfig.SIYUAN_API_TOKEN || SIYUAN_API_TOKEN_ENV;
+    const apiUrl = apiUrlArg || SIYUAN_API_URL_ENV || fileConfig.SIYUAN_API_URL || 'http://127.0.0.1:6806';
+    const apiToken = apiTokenArg || SIYUAN_API_TOKEN_ENV || fileConfig.SIYUAN_API_TOKEN;
 
     if (!apiToken) {
         console.error('[HUI Tool:getSiyuanDocsInNotebook] 错误：API Token 未提供。');
@@ -672,21 +690,16 @@ export async function getSiyuanDocsInNotebookHandler(
 
     const requestBody: { notebook: string; path: string; sort?: number } = {
         notebook: notebookId,
-        path: path || '/', // Ensure path is always a string, default to root if undefined/empty
+        path: docPath || '/', // Ensure path is always a string, default to root if undefined/empty
     };
     if (sort !== undefined && sort !== null) {
         requestBody.sort = sort;
     }
 
     try {
-        console.log(`[HUI Tool:getSiyuanDocsInNotebook] 准备调用思源 API: ${apiUrl}/api/filetree/listDocTree, Token: ${apiTokenShort(apiToken)}, Body:`, JSON.stringify(requestBody));
-        // 织: 定义一个辅助函数来缩短Token日志输出，避免敏感信息过长
-        function apiTokenShort(token: string | undefined): string {
-            if (!token) return 'N/A';
-            return token.length > 8 ? token.substring(0, 5) + '...' : token;
-        }
+        console.log(`[HUI Tool:getSiyuanDocsInNotebook] 准备调用思源 API: ${apiUrl}/api/filetree/listDocsByPath, Token: ${apiTokenShort(apiToken)}, Body:`, JSON.stringify(requestBody));
 
-        const response = await fetch(`${apiUrl}/api/filetree/listDocTree`, {
+        const response = await fetch(`${apiUrl}/api/filetree/listDocsByPath`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -706,7 +719,7 @@ export async function getSiyuanDocsInNotebookHandler(
 
         const files = responseData.data?.files;
         if (Array.isArray(files)) {
-            const summaryText = `在笔记本 ${notebookId} 路径 '${requestBody.path}' 下找到 ${files.length} 个条目：`;
+            const summaryText = `在笔记本 ${notebookId} 路径 '${docPath}' 下找到 ${files.length} 个条目：`;
             return {
                 content: [
                     { type: 'text', text: summaryText },
@@ -716,13 +729,13 @@ export async function getSiyuanDocsInNotebookHandler(
         } else {
             return {
                 content: [
-                    { type: 'text', text: `未能获取文档列表或列表为空 (笔记本: ${notebookId}, 路径: '${requestBody.path}')。` }
+                    { type: 'text', text: `未能获取文档列表或列表为空 (笔记本: ${notebookId}, 路径: '${docPath}')。` }
                 ]
             };
         }
 
     } catch (error: any) {
-        console.error(`[HUI Tool:getSiyuanDocsInNotebook] 执行时发生错误 for notebook '${notebookId}', path '${path}':`, error);
+        console.error(`[HUI Tool:getSiyuanDocsInNotebook] 执行时发生错误 for notebook '${notebookId}', path '${docPath}':`, error);
         if (error instanceof McpError) {
             throw error;
         }
@@ -767,16 +780,19 @@ interface SiyuanSearchResultBlockForMyNotes extends SiyuanSearchResultBlock {} /
 export async function findMyNotesHandler(
     args: any 
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-    const { userQuery, siyuanApiUrl: apiUrlArg, siyuanApiToken: apiTokenArg, sortBy: sortByArg, limit: limitArg, page: pageArg } = args;
+    const {
+        userQuery,
+        sortBy = 'updated',
+        limit = 20,
+        page = 1,
+        siyuanApiUrl: apiUrlArg,
+        siyuanApiToken: apiTokenArg
+    } = args;
     const fileConfig = loadSiyuanConfigFromFile();
 
     const apiUrl = apiUrlArg || SIYUAN_API_URL_ENV || fileConfig.SIYUAN_API_URL || 'http://127.0.0.1:6806';
     const apiToken = apiTokenArg || SIYUAN_API_TOKEN_ENV || fileConfig.SIYUAN_API_TOKEN;
     
-    const sortBy = sortByArg || 'updated'; // Default sort
-    const page = pageArg || 1;
-    const limit = limitArg || 20;
-
     if (!apiToken) {
         console.error('[HUI Tool:findMyNotes] 错误：API Token 未提供。');
         throw new McpError(ErrorCode.InvalidParams, '配置错误：API Token 必须通过参数、环境变量或 siyuan.config.json 文件提供。');
@@ -799,12 +815,6 @@ export async function findMyNotesHandler(
     else if (sortBy === 'alphanumDESC') orderBySql = 'ORDER BY sort DESC';
     sqlStatement += ` ${orderBySql}`;
     
-    // Helper function for logging shortened API token
-    function apiTokenShort(token: string | undefined): string {
-        if (!token) return 'N/A';
-        return token.length > 8 ? token.substring(0, 5) + '...' : token;
-    }
-
     try {
         const requestBody = {
             query: sqlStatement,
@@ -864,3 +874,207 @@ export async function findMyNotesHandler(
         throw new McpError(ErrorCode.InternalError, `执行 findMyNotes 工具时出错: ${error.message || '未知错误'}`);
     }
 } 
+
+// --- getOrCreateNotebook Tool ---
+
+export const getOrCreateNotebookInputRawShape = {
+    notebookName: z.string().min(1, '笔记本名称不能为空'),
+    icon: z.string().optional().describe('可选的笔记本图标 (Emoji)'),
+    siyuanApiUrl: z.string().url().optional().describe('可选的思源 API URL，如果未提供则使用环境变量 SIYUAN_API_URL 或默认值。'),
+    siyuanApiToken: z.string().optional().describe('可选的思源 API Token，如果未提供则使用环境变量 SIYUAN_API_TOKEN。'),
+};
+
+export const getOrCreateNotebookHuiHints: CurrentHuiRenderingHints = {
+    label: '获取或创建思源笔记本',
+    description: '根据名称查找思源笔记本，如果不存在则创建它。可以指定图标。',
+    category: 'Siyuan笔记操作',
+    tags: ['siyuan', 'notebook', 'create', 'get', 'find', 'ensure'],
+    outputDescription: '返回找到或创建的笔记本的详细信息，包括ID、名称、图标以及是否存在/是否被创建的状态。',
+    inputHints: {
+        notebookName: { label: '笔记本名称 (必填)', inputType: 'text', required: true },
+        icon: { label: '笔记本图标 (可选)', inputType: 'text' },
+        siyuanApiUrl: { label: 'API URL (可选)', inputType: 'text' },
+        siyuanApiToken: { label: 'API Token (可选)', inputType: 'text' },
+    }
+};
+
+interface NotebookDetail {
+    id: string;
+    name: string;
+    icon: string;
+    sort?: number; // 从 lsNotebooks 可能获得
+    closed?: boolean; // 从 lsNotebooks 可能获得
+    exists: boolean;
+    created: boolean;
+}
+
+export async function getOrCreateNotebookHandler(
+    args: any
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+    const { notebookName, icon, siyuanApiUrl: apiUrlArg, siyuanApiToken: apiTokenArg } = args;
+    const fileConfig = loadSiyuanConfigFromFile();
+
+    const apiUrl = apiUrlArg || SIYUAN_API_URL_ENV || fileConfig.SIYUAN_API_URL || 'http://127.0.0.1:6806';
+    const apiToken = apiTokenArg || SIYUAN_API_TOKEN_ENV || fileConfig.SIYUAN_API_TOKEN;
+
+    if (!apiToken) {
+        console.error('[HUI Tool:getOrCreateNotebook] 错误：API Token 未提供。');
+        throw new McpError(ErrorCode.InvalidParams, '配置错误：API Token 必须通过参数、环境变量或 siyuan.config.json 文件提供。');
+    }
+    if (!apiUrl) {
+        console.error('[HUI Tool:getOrCreateNotebook] 错误：API URL 未提供。');
+        throw new McpError(ErrorCode.InvalidParams, '配置错误：API URL 必须通过参数、环境变量或 siyuan.config.json 文件提供。');
+    }
+
+    try {
+        // 1. 列出现有笔记本
+        console.log(`[HUI Tool:getOrCreateNotebook] 准备列出笔记本, API: ${apiUrl}/api/notebook/lsNotebooks, Token: ${apiTokenShort(apiToken)}`);
+        const lsResponse = await fetch(`${apiUrl}/api/notebook/lsNotebooks`, {
+            method: 'POST', // 假设 lsNotebooks 是 POST，参考 getSiyuanNotebooksHandler，实际可能需要查API文档或server日志
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Token ${apiToken}`,
+            },
+            body: JSON.stringify({}) // lsNotebooks 通常不需要 body，但 POST 请求有时需要空对象
+        });
+        const lsResponseData = await lsResponse.json();
+
+        console.log('[HUI Tool:getOrCreateNotebook] lsNotebooks API 响应:', JSON.stringify(lsResponseData, null, 2));
+
+        if (!lsResponse.ok || lsResponseData.code !== 0) {
+            const errorMsg = `列出笔记本失败: ${lsResponse.status} ${lsResponse.statusText} - ${lsResponseData.msg || '未知错误'}`;
+            console.error(`[HUI Tool:getOrCreateNotebook] ${errorMsg}`);
+            throw new McpError(ErrorCode.InternalError, errorMsg);
+        }
+
+        const notebooks: SiyuanNotebookInfo[] = lsResponseData.data.notebooks || [];
+        const existingNotebook = notebooks.find(nb => nb.name === notebookName);
+
+        if (existingNotebook) {
+            console.log(`[HUI Tool:getOrCreateNotebook] 找到已存在的笔记本: ${notebookName} (ID: ${existingNotebook.id})`);
+            const notebookDetail: NotebookDetail = {
+                id: existingNotebook.id,
+                name: existingNotebook.name,
+                icon: existingNotebook.icon,
+                sort: existingNotebook.sort,
+                closed: existingNotebook.closed,
+                exists: true,
+                created: false,
+            };
+            return {
+                content: [
+                    { type: 'text', text: `已找到笔记本 '${notebookName}' (ID: ${existingNotebook.id})` },
+                    { type: 'text', text: JSON.stringify(notebookDetail, null, 2) }
+                ]
+            };
+        } else {
+            // 2. 如果未找到，则创建笔记本
+            console.log(`[HUI Tool:getOrCreateNotebook] 未找到笔记本 '${notebookName}'，准备创建。 API: ${apiUrl}/api/notebook/createNotebook, Icon: ${icon || ''}`);
+            const createBody: { name: string; icon?: string } = { name: notebookName };
+            if (icon) {
+                createBody.icon = icon;
+            }
+            const createResponse = await fetch(`${apiUrl}/api/notebook/createNotebook`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Token ${apiToken}`,
+                },
+                body: JSON.stringify(createBody),
+            });
+            const createResponseData = await createResponse.json();
+            console.log('[HUI Tool:getOrCreateNotebook] createNotebook API 响应:', JSON.stringify(createResponseData, null, 2));
+
+            if (!createResponse.ok || createResponseData.code !== 0) {
+                const errorMsg = `创建笔记本 '${notebookName}' 失败: ${createResponse.status} ${createResponse.statusText} - ${createResponseData.msg || '未知错误'}`;
+                console.error(`[HUI Tool:getOrCreateNotebook] ${errorMsg}`);
+                throw new McpError(ErrorCode.InternalError, errorMsg);
+            }
+            
+            // 织：根据 API 文档 (siyuan-kernelApi-docs/notebook/createNotebook.html) 修正响应解析
+            // 正确的路径是 responseData.data.notebook.id
+            const newNotebookInfo = createResponseData.data?.notebook; // 使用可选链
+
+            if (!newNotebookInfo || !newNotebookInfo.id) {
+                const errorMsg = `创建笔记本 '${notebookName}' 成功，但响应数据中未找到预期的笔记本对象或其ID (expected path: data.notebook.id)。`;
+                console.error(`[HUI Tool:getOrCreateNotebook] ${errorMsg} Response:`, createResponseData);
+                throw new McpError(ErrorCode.InternalError, errorMsg); 
+            }
+
+            console.log(`[HUI Tool:getOrCreateNotebook] 成功创建笔记本: ${newNotebookInfo.name || notebookName} (ID: ${newNotebookInfo.id})`);
+            const notebookDetail: NotebookDetail = {
+                id: newNotebookInfo.id,
+                name: newNotebookInfo.name || notebookName, 
+                icon: newNotebookInfo.icon || icon || '',    
+                sort: newNotebookInfo.sort, // 织：从API响应中获取sort
+                closed: newNotebookInfo.closed, // 织：从API响应中获取closed状态
+                exists: false,
+                created: true,
+            };
+            return {
+                content: [
+                    { type: 'text', text: `已创建笔记本 '${newNotebookInfo.name || notebookName}' (ID: ${newNotebookInfo.id})` },
+                    { type: 'text', text: JSON.stringify(notebookDetail, null, 2) }
+                ]
+            };
+        }
+    } catch (error: any) {
+        console.error(`[HUI Tool:getOrCreateNotebook] 执行时发生错误 for notebookName '${notebookName}':`, error);
+        if (error instanceof McpError) {
+            throw error;
+        }
+        throw new McpError(ErrorCode.InternalError, `执行 getOrCreateNotebook 工具时出错: ${error.message || '未知错误'}`);
+    }
+}
+
+// 织：确保将新工具添加到导出的 tools 对象中
+export const tools = {
+    writeToSiyuanDailyNote: {
+        inputRawShape: writeToSiyuanDailyNoteInputRawShape,
+        outputRawShape: mcpStandardOutputSchema,
+        handler: writeToSiyuanDailyNoteHandler,
+        hui: writeToSiyuanDailyNoteHuiHints,
+    },
+    getSiyuanNotebooks: {
+        inputRawShape: getSiyuanNotebooksInputRawShape,
+        outputRawShape: mcpStandardOutputSchema,
+        handler: getSiyuanNotebooksHandler,
+        hui: getSiyuanNotebooksHuiHints,
+    },
+    getSiyuanNoteContentById: {
+        inputRawShape: getSiyuanNoteContentByIdInputRawShape,
+        outputRawShape: mcpStandardOutputSchema,
+        handler: getSiyuanNoteContentByIdHandler,
+        hui: getSiyuanNoteContentByIdHuiHints,
+    },
+    searchSiyuanNotes: {
+        inputRawShape: searchSiyuanNotesInputRawShape,
+        outputRawShape: mcpStandardOutputSchema,
+        handler: searchSiyuanNotesHandler,
+        hui: searchSiyuanNotesHuiHints,
+    },
+    createSiyuanNotebook: {
+        inputRawShape: createSiyuanNotebookInputRawShape,
+        outputRawShape: mcpStandardOutputSchema,
+        handler: createSiyuanNotebookHandler,
+        hui: createSiyuanNotebookHuiHints,
+    },
+    getSiyuanDocsInNotebook: {
+        inputRawShape: getSiyuanDocsInNotebookInputRawShape,
+        outputRawShape: mcpStandardOutputSchema,
+        handler: getSiyuanDocsInNotebookHandler,
+        hui: getSiyuanDocsInNotebookHuiHints,
+    },
+    findMyNotes: {
+        inputRawShape: findMyNotesInputRawShape,
+        outputRawShape: mcpStandardOutputSchema,
+        handler: findMyNotesHandler,
+        hui: findMyNotesHuiHints,
+    },
+    getOrCreateNotebook: {
+        inputRawShape: getOrCreateNotebookInputRawShape,
+        outputRawShape: mcpStandardOutputSchema,
+        handler: getOrCreateNotebookHandler,
+        hui: getOrCreateNotebookHuiHints,
+    }
+};

@@ -248,95 +248,135 @@ async function testBroadcastChannel() {
 // WebRTC Test
 // ====================================
 
-// Helper to wait for data channel to open by polling its state
-async function waitForDataChannelOpen(transport, logElId, transportName, timeoutMs = 10000, intervalMs = 200) {
-    appendLog(logElId, `[${transportName}] Waiting for data channel to open (max ${timeoutMs / 1000}s)...`);
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeoutMs) {
-        // @ts-ignore _dataChannel is private, used here for robust testing
-        if (transport._dataChannel && transport._dataChannel.readyState === 'open') {
-            // @ts-ignore _dataChannel is private
-            appendLog(logElId, `[${transportName}] Data channel is open. State: ${transport._dataChannel.readyState}`);
-            return true;
-        }
-        await new Promise(resolve => setTimeout(resolve, intervalMs));
-    }
-    // @ts-ignore _dataChannel is private
-    const state = transport._dataChannel ? transport._dataChannel.readyState : 'not available';
-    appendLog(logElId, `[${transportName}] Data channel did NOT open within ${timeoutMs / 1000}s. Current state: ${state}`);
-    return false;
-}
+// 织: waitForDataChannelOpen 辅助函数将被移除，逻辑已移入 transport 内部
+// async function waitForDataChannelOpen(transport, logElId, transportName, timeoutMs = 10000, intervalMs = 200) { ... }
 
 async function testWebRTC() {
     const statusEl = 'webrtc-status';
     const logEl = 'webrtc-log';
-    updateStatus(statusEl, null, 'WebRTC Test starting...');
-    appendLog(logEl, '--- WebRTC Test ---');
+    updateStatus(statusEl, null, 'WebRTC Test starting (Manual Signaling Mode)...');
+    appendLog(logEl, '--- WebRTC Test (Manual Signaling) ---');
 
-    // Simple in-memory signaling for this test
-    let clientSignalQueue = [];
-    let serverSignalQueue = [];
+    // Get a handle to the new HTML elements
+    const serverSignalOutEl = document.getElementById('webrtc-server-signal-out');
+    const serverSignalInEl = document.getElementById('webrtc-server-signal-in');
+    const serverHandleBtn = document.getElementById('webrtc-server-handle-signal-btn');
+    const clientSignalOutEl = document.getElementById('webrtc-client-signal-out');
+    const clientSignalInEl = document.getElementById('webrtc-client-signal-in');
+    const clientHandleBtn = document.getElementById('webrtc-client-handle-signal-btn');
+
+    let rtcServer;
+    let rtcClient;
+    let rtcServerTransport;
+    let rtcClientTransport;
+
+    const DATA_CHANNEL_TIMEOUT = 15000; // 15 seconds
 
     try {
-        // Server Part
         appendLog(logEl, '[WebRTC Server] Initializing...');
-        const rtcServer = new HuiMcpServer(serverInfo);
+        rtcServer = new HuiMcpServer(serverInfo);
         rtcServer.tool(
             echoTool.name, 
             echoTool.description, 
             echoTool.inputSchema, 
             echoTool.execute
         );
-        const rtcServerTransport = new WebRTCServerTransport(); // Using default RTCConfiguration
-        rtcServerTransport.onerror = (err) => appendLog(logEl, `[WebRTC Server Transport Error] ${err.message}`);
+        rtcServerTransport = new WebRTCServerTransport(undefined, DATA_CHANNEL_TIMEOUT); 
+        rtcServerTransport.onerror = (err) => {
+            appendLog(logEl, `[WebRTC Server Transport Error] ${err.message}`);
+            serverSignalOutEl.value = `ERROR: ${err.message}`;
+        };
         rtcServerTransport.onclose = () => appendLog(logEl, '[WebRTC Server Transport] Closed.');
-        rtcServerTransport.onsignal = (signal) => {
-            appendLog(logEl, `[WebRTC Server] Signaling to Client: ${signal.type}`);
-            setTimeout(() => rtcClientTransport.handleSignal(signal), 0);
+        
+        rtcClientTransport = new WebRTCClientTransport(undefined, DATA_CHANNEL_TIMEOUT);
+        rtcClientTransport.onerror = (err) => {
+            appendLog(logEl, `[WebRTC Client Transport Error] ${err.message}`);
+            clientSignalOutEl.value = `ERROR: ${err.message}`;
         };
-        await rtcServer.connect(rtcServerTransport);
-        appendLog(logEl, '[WebRTC Server] Ready, awaiting offer (transport started by server.connect).');
-
-        // Client Part
-        appendLog(logEl, '[WebRTC Client] Initializing...');
-        const rtcClient = new HuiMcpClient(clientInfo);
-        const rtcClientTransport = new WebRTCClientTransport(); // Using default RTCConfiguration
-        rtcClientTransport.onerror = (err) => appendLog(logEl, `[WebRTC Client Transport Error] ${err.message}`);
         rtcClientTransport.onclose = () => appendLog(logEl, '[WebRTC Client Transport] Closed.');
-        rtcClientTransport.onsignal = (signal) => {
-            appendLog(logEl, `[WebRTC Client] Signaling to Server: ${signal.type}`);
-            setTimeout(() => rtcServerTransport.handleSignal(signal), 0);
+
+        // Setup manual signaling
+        rtcServerTransport.onsignal = (signal) => {
+            const signalStr = JSON.stringify(signal);
+            appendLog(logEl, `[WebRTC Server] पद्धति onsignal: Produces Signal (for Client): ${signal.type || 'candidate'}. Raw signal: ${signalStr}`);
+            serverSignalOutEl.value = signalStr;
+            serverSignalOutEl.focus();
+            serverSignalOutEl.select();
         };
-        await rtcClient.connect(rtcClientTransport);
-        appendLog(logEl, '[WebRTC Client] Client connect initiated. Waiting for data channels to open.');
 
-        // Wait for data channels to open using the new helper
-        const clientChannelOpen = await waitForDataChannelOpen(rtcClientTransport, logEl, 'WebRTC Client Transport');
-        const serverChannelOpen = await waitForDataChannelOpen(rtcServerTransport, logEl, 'WebRTC Server Transport');
+        rtcClientTransport.onsignal = (signal) => {
+            const signalStr = JSON.stringify(signal);
+            appendLog(logEl, `[WebRTC Client] Produces Signal (for Server): ${signal.type || 'candidate'}`);
+            clientSignalOutEl.value = signalStr;
+            clientSignalOutEl.focus();
+            clientSignalOutEl.select();
+        };
 
-        if (!clientChannelOpen) {
-            throw new Error('WebRTC Client DataChannel did not open in time.');
-        }
-        if (!serverChannelOpen) {
-            // Log non-critical failure for server if client is primary
-            appendLog(logEl, '[WebRTC Server Transport] Server data channel did not open in time. Test might be unstable.');
-        }
+        serverHandleBtn.onclick = () => {
+            const signalStr = serverSignalInEl.value;
+            if (!signalStr.trim()) {
+                appendLog(logEl, '[WebRTC Server] No signal pasted to process.');
+                return;
+            }
+            appendLog(logEl, `[WebRTC Server] Attempting to process pasted signal: ${signalStr.substring(0, 100)}...`);
+            try {
+                const signal = JSON.parse(signalStr);
+                appendLog(logEl, `[WebRTC Server] Parsed signal successfully. Type: ${signal.type || 'candidate'}. Calling handleSignal.`);
+                rtcServerTransport.handleSignal(signal);
+                appendLog(logEl, '[WebRTC Server] rtcServerTransport.handleSignal() called.');
+                serverSignalInEl.value = ''; // Clear after processing
+            } catch (e) {
+                appendLog(logEl, `[WebRTC Server] Error parsing or handling pasted signal: ${e.message}. Signal: ${signalStr}`);
+            }
+        };
 
-        appendLog(logEl, '[WebRTC Client] Checking data channel state (post-wait)...');
-        // @ts-ignore _dataChannel is private but we peek for test logging
-        if (!rtcClientTransport._dataChannel || rtcClientTransport._dataChannel.readyState !== 'open') {
-             // @ts-ignore
-            const dcState = rtcClientTransport._dataChannel ? rtcClientTransport._dataChannel.readyState : 'not available';
-            appendLog(logEl, `[WebRTC Client] Data channel not open. State: ${dcState}. Test might fail.`);
-        }
-        // @ts-ignore _dataChannel is private
-        if (!rtcServerTransport._dataChannel || rtcServerTransport._dataChannel.readyState !== 'open') {
-            // @ts-ignore
-            const dcState = rtcServerTransport._dataChannel ? rtcServerTransport._dataChannel.readyState : 'not available';
-            appendLog(logEl, `[WebRTC Server] Data channel not open. State: ${dcState}. Test might fail.`);
-        }
+        clientHandleBtn.onclick = () => {
+            const signalStr = clientSignalInEl.value;
+            if (!signalStr.trim()) {
+                appendLog(logEl, '[WebRTC Client] No signal pasted to process.');
+                return;
+            }
+            try {
+                const signal = JSON.parse(signalStr);
+                appendLog(logEl, `[WebRTC Client] Manually handling signal from Server: ${signal.type || 'candidate'}`);
+                rtcClientTransport.handleSignal(signal);
+                clientSignalInEl.value = ''; // Clear after processing
+            } catch (e) {
+                appendLog(logEl, `[WebRTC Client] Error parsing pasted signal: ${e.message}. Signal: ${signalStr}`);
+            }
+        };
+        
+        appendLog(logEl, '[WebRTC UI] Manual signaling UI is now active. Start the connection by initiating client or server.');
+        appendLog(logEl, '[WebRTC UI] Typical flow: Server connects, then Client connects. This will produce an offer on Client output.');
+        appendLog(logEl, '[WebRTC UI] Copy Client output to Server input & process. Then copy Server output to Client input & process.');
+        appendLog(logEl, '[WebRTC UI] Repeat for ICE candidates until connected.');
 
-        // Test: listTools
+
+        // Connect server (doesn't wait for data channel, just sets up to receive offer)
+        await rtcServer.connect(rtcServerTransport);
+        appendLog(logEl, '[WebRTC Server] Ready (via connect call). It will produce signals once client attempts to connect.');
+
+        // Connect client (this WILL wait for its data channel to open via its internal promise,
+        // AFTER signaling is manually completed by the user)
+        appendLog(logEl, '[WebRTC Client] Connecting client (will produce an OFFER in its output box)...');
+        rtcClient = new HuiMcpClient(clientInfo);
+        
+        // The actual promise for connection will be awaited later. 
+        // We need to allow signals to be exchanged first.
+        const clientConnectionPromise = rtcClient.connect(rtcClientTransport); 
+        appendLog(logEl, '[WebRTC Client] Client connect() called. Monitor signal boxes.');
+
+        appendLog(logEl, '[WebRTC Test] User needs to manually relay signals now using the text boxes.');
+        appendLog(logEl, '[WebRTC Test] Once signals are exchanged and DataChannels established, test will proceed.');
+
+        // Now wait for the client connection to actually complete (data channel open)
+        await clientConnectionPromise;
+        appendLog(logEl, '[WebRTC Client] Client connect() promise resolved. Its data channel should be open.');
+
+        appendLog(logEl, '[WebRTC Test] Client connected. Now explicitly waiting for server data channel to confirm open...');
+        await rtcServerTransport.awaitDataChannelOpen();
+        appendLog(logEl, '[WebRTC Test] Server data channel confirmed open.');
+        
         appendLog(logEl, '[WebRTC Client] Calling listTools...');
         const rtcListToolsResponse = await rtcClient.listTools();
         appendLog(logEl, `[WebRTC Client] listTools response: ${JSON.stringify(rtcListToolsResponse, null, 2)}`);
@@ -367,16 +407,34 @@ async function testWebRTC() {
 
         updateStatus(statusEl, true, 'WebRTC Test PASSED!');
 
-        // Cleanup
-        await rtcClient.close();
-        await rtcServer.close();
-
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         appendLog(logEl, `[WebRTC Test Error] ${errorMessage}`);
         updateStatus(statusEl, false, `WebRTC Test FAILED: ${errorMessage}`);
+        // throw err; // Allow other tests to run
+    } finally {
+        appendLog(logEl, '[WebRTC Test] Entering finally block for cleanup...');
+        // Remove event listeners to prevent memory leaks if test is re-run or errors out
+        serverHandleBtn.onclick = null;
+        clientHandleBtn.onclick = null;
+
+        if (rtcClient) {
+            try { await rtcClient.close(); appendLog(logEl, '[WebRTC Test] Client closed.'); } 
+            catch (e) { appendLog(logEl, `[WebRTC Test] Error closing client: ${e.message}`); }
+        }
+        if (rtcServer) { // rtcServer.close() should close rtcServerTransport
+            try { await rtcServer.close(); appendLog(logEl, '[WebRTC Test] Server closed.'); } 
+            catch (e) { appendLog(logEl, `[WebRTC Test] Error closing server: ${e.message}`); }
+        }
+        // Transports are closed by their respective HuiMcpClient/Server instances.
+        // Clear text areas as well
+        if (serverSignalOutEl) serverSignalOutEl.value = '';
+        if (serverSignalInEl) serverSignalInEl.value = '';
+        if (clientSignalOutEl) clientSignalOutEl.value = '';
+        if (clientSignalInEl) clientSignalInEl.value = '';
+        
+        appendLog(logEl, '--- WebRTC Test Ended (finally) ---');
     }
-    appendLog(logEl, '--- WebRTC Test Ended ---');
 }
 
 // Run tests after a short delay to ensure modules are loaded and DOM is ready

@@ -46,6 +46,24 @@
             <h2>WebRTC Transport Test</h2>
             <div id="webrtc-status" class="status">Not started</div>
             <pre id="webrtc-log"></pre>
+            <div id="webrtc-manual-signaling">
+                <h4>WebRTC Manual Signaling:</h4>
+                <div>
+                    <strong>Server:</strong><br>
+                    <textarea id="webrtc-server-signal-out" rows="5" cols="60" readonly placeholder="Server signals (offer/answer, candidates) will appear here..."></textarea><br>
+                    <label for="webrtc-server-signal-in">Paste Client Signal Here:</label><br>
+                    <textarea id="webrtc-server-signal-in" rows="5" cols="60" placeholder="Paste signal from client here..."></textarea><br>
+                    <button id="webrtc-server-handle-signal-btn">Server: Process Pasted Signal</button>
+                </div>
+                <hr>
+                <div>
+                    <strong>Client:</strong><br>
+                    <textarea id="webrtc-client-signal-out" rows="5" cols="60" readonly placeholder="Client signals (offer, candidates) will appear here..."></textarea><br>
+                    <label for="webrtc-client-signal-in">Paste Server Signal Here:</label><br>
+                    <textarea id="webrtc-client-signal-in" rows="5" cols="60" placeholder="Paste signal from server here..."></textarea><br>
+                    <button id="webrtc-client-handle-signal-btn">Client: Process Pasted Signal</button>
+                </div>
+            </div>
         </div>
     </div>
 

@@ -25,7 +25,12 @@ import {
     getSiyuanDocsInNotebookHandler,
     findMyNotesInputRawShape,
     findMyNotesHuiHints,
-    findMyNotesHandler
+    findMyNotesHandler,
+    // 织：为新工具 getOrCreateNotebook 手动导入
+    getOrCreateNotebookInputRawShape,
+    getOrCreateNotebookHuiHints,
+    getOrCreateNotebookHandler,
+    tools as siyuanToolCollection // 织：导入整个siyuan工具集合，用于自动注册
 } from './tools/siyuan.js';
 
 // 导入生活日志工具
@@ -170,6 +175,61 @@ export function registerAllTools(huiMcpServer: HuiMcpServer): void {
     findMyNotesHuiHints,
     findMyNotesHandler
   );
+
+  // 织：手动注册 getOrCreateNotebook 工具 (临时，后续会被自动注册替代)
+  huiMcpServer.huiTool(
+    'getOrCreateNotebook',
+    (getOrCreateNotebookHuiHints as HuiRenderingHints)?.description || '获取或创建思源笔记本。',
+    getOrCreateNotebookInputRawShape,
+    getOrCreateNotebookHuiHints,
+    getOrCreateNotebookHandler
+  );
+  console.log('[ToolRegistration] Manually registered Siyuan tool: getOrCreateNotebook');
+
+  // 织：定义一个手动注册过的思源工具列表，用于在自动注册时跳过它们
+  const manuallyRegisteredSiyuanTools = [
+    'writeToSiyuanDailyNote',
+    'getSiyuanNotebooks',
+    'getSiyuanNoteContentById',
+    'searchSiyuanNotes',
+    'createSiyuanNotebook',
+    'getSiyuanDocsInNotebook',
+    'findMyNotes',
+    'getOrCreateNotebook' // 确保包含所有手动注册的条目
+  ];
+
+  // --- 自动注册来自 siyuan.ts 的工具 (实验性) ---
+  console.log('[ToolRegistration] Starting automatic registration of tools from siyuanToolCollection...');
+  for (const toolName in siyuanToolCollection) {
+    if (Object.prototype.hasOwnProperty.call(siyuanToolCollection, toolName)) {
+        const toolDef = (siyuanToolCollection as any)[toolName]; // 使用 any 类型断言，因为 siyuanToolCollection 的类型可能不精确
+        
+        // 从 HUI hints 获取描述，如果不存在则使用默认描述
+        const description = (toolDef.hui as HuiRenderingHints)?.description || `Siyuan tool: ${toolName}`;
+
+        // 检查是否已手动注册，避免重复（主要针对 getOrCreateNotebook 的过渡期）
+        if (manuallyRegisteredSiyuanTools.includes(toolName)) {
+            console.log(`[ToolRegistration] Skipping automatic registration for already manually registered tool: ${toolName}`);
+            continue;
+        }
+
+        // 检查工具定义是否完整
+        if (!toolDef.inputRawShape || !toolDef.hui || !toolDef.handler) {
+            console.warn(`[ToolRegistration] Tool '${toolName}' from siyuanToolCollection is missing one or more required properties (inputRawShape, hui, handler). Skipping registration.`);
+            continue;
+        }
+
+        huiMcpServer.huiTool(
+            toolName,
+            description,
+            toolDef.inputRawShape,
+            toolDef.hui as HuiRenderingHints,
+            toolDef.handler
+        );
+        console.log(`[ToolRegistration] Automatically registered Siyuan tool: ${toolName}`);
+    }
+  }
+  console.log('[ToolRegistration] Finished automatic registration from siyuanToolCollection.');
 
   // 织：注册 getWebpageContent 工具
   huiMcpServer.huiTool(

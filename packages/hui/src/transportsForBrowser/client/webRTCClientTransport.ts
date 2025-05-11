@@ -50,6 +50,8 @@ export class WebRTCClientTransport {
     private _dataChannelOpenPromise: Promise<void>;
     private _resolveDataChannelOpenPromise!: () => void;
     private _rejectDataChannelOpenPromise!: (reason?: any) => void;
+    private _dataChannelOpenTimeoutMs: number; // 织: 数据通道打开超时时间
+    private _dataChannelOpenTimeoutId?: any; // 织: 用于存储超时计时器ID
 
     public onmessage?: (message: JSONRPCMessage) => void;
     public onerror?: (error: Error) => void;
@@ -59,21 +61,21 @@ export class WebRTCClientTransport {
     /**
      * Creates an instance of WebRTCClientTransport.
      * @param rtcConfiguration Optional RTCConfiguration for the RTCPeerConnection.
+     * @param dataChannelOpenTimeoutMs Timeout in milliseconds for data channel to open. Defaults to 10000ms.
      * @throws {WebRTCClientError} If RTCPeerConnection API is not available.
      */
-    constructor(rtcConfiguration?: RTCConfiguration) {
+    constructor(rtcConfiguration?: RTCConfiguration, dataChannelOpenTimeoutMs: number = 10000) {
         if (typeof RTCPeerConnection === "undefined") {
             throw new WebRTCClientError("RTCPeerConnection API is not available in this environment.", "API_UNAVAILABLE");
         }
         this._rtcConfiguration = rtcConfiguration || DEFAULT_RTC_CONFIGURATION;
-        // 织：初始化 Promise
-        this._dataChannelOpenPromise = new Promise<void>((resolve, reject) => {
-            this._resolveDataChannelOpenPromise = resolve;
-            this._rejectDataChannelOpenPromise = reject; // 用于在出错或关闭时 reject
-        });
+        this._dataChannelOpenTimeoutMs = dataChannelOpenTimeoutMs; // 织: 保存超时时间
+        // 织：初始化 Promise (实际的创建移动到start()中，以支持重连场景下的重置)
+        this._dataChannelOpenPromise = Promise.resolve(); // Initial dummy promise
+        // Set to a resolved promise initially, it will be properly created in start()
     }
 
-    // 织：提供一个公共方法来等待数据通道打开
+    // 织：提供一个公共方法来等待数据通道打开 (主要用于测试或特定场景)
     public async awaitDataChannelOpen(): Promise<void> {
         return this._dataChannelOpenPromise;
     }
@@ -90,11 +92,24 @@ export class WebRTCClientTransport {
             return;
         }
 
-        // 织：在 start 开始时重置 dataChannelOpenPromise，以允许重新连接（如果支持）
-        // 对于当前实现，我们假设 transport 是一次性的，但这样做更健壮
+        // 织：在 start 开始时重置 dataChannelOpenPromise
         this._dataChannelOpenPromise = new Promise<void>((resolve, reject) => {
-            this._resolveDataChannelOpenPromise = resolve;
-            this._rejectDataChannelOpenPromise = reject;
+            this._resolveDataChannelOpenPromise = () => {
+                if (this._dataChannelOpenTimeoutId) clearTimeout(this._dataChannelOpenTimeoutId);
+                resolve();
+            };
+            this._rejectDataChannelOpenPromise = (reason?: any) => {
+                if (this._dataChannelOpenTimeoutId) clearTimeout(this._dataChannelOpenTimeoutId);
+                reject(reason);
+            };
+
+            // 织: 设置数据通道打开超时
+            this._dataChannelOpenTimeoutId = setTimeout(() => {
+                this._rejectDataChannelOpenPromise(new WebRTCClientError(
+                    `Data channel did not open within ${this._dataChannelOpenTimeoutMs}ms.`,
+                    "DATA_CHANNEL_TIMEOUT"
+                ));
+            }, this._dataChannelOpenTimeoutMs);
         });
 
         try {
@@ -340,6 +355,13 @@ export class WebRTCClientTransport {
      */
     public async close(): Promise<void> {
         console.log('WebRTCClient: Closing...');
+        
+        // 织：清除可能存在的超时计时器
+        if (this._dataChannelOpenTimeoutId) {
+            clearTimeout(this._dataChannelOpenTimeoutId);
+            this._dataChannelOpenTimeoutId = undefined;
+        }
+
         // 织：如果 start() 正在等待 _dataChannelOpenPromise，则拒绝它以解除等待状态
         if (this._rejectDataChannelOpenPromise) {
             // 使用一个特定的错误或状态，表明是由于关闭操作导致的

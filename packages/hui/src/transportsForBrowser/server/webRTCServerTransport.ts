@@ -38,6 +38,13 @@ export class WebRTCServerTransport {
     private _dataChannel?: RTCDataChannel;
     private _rtcConfiguration: RTCConfiguration;
 
+    // 织: 添加用于等待数据通道打开的 Promise 及超时控制
+    private _dataChannelOpenPromise: Promise<void>;
+    private _resolveDataChannelOpenPromise!: () => void;
+    private _rejectDataChannelOpenPromise!: (reason?: any) => void;
+    private _dataChannelOpenTimeoutMs: number;
+    private _dataChannelOpenTimeoutId?: any;
+
     public onmessage?: (message: JSONRPCMessage) => void;
     public onerror?: (error: Error) => void;
     public onclose?: () => void;
@@ -46,13 +53,46 @@ export class WebRTCServerTransport {
     /**
      * Creates an instance of WebRTCServerTransport.
      * @param rtcConfiguration Optional RTCConfiguration for the RTCPeerConnection.
+     * @param dataChannelOpenTimeoutMs Timeout in milliseconds for data channel to open (from offer reception to channel open). Defaults to 10000ms.
      * @throws {WebRTCServerError} If RTCPeerConnection API is not available.
      */
-    constructor(rtcConfiguration?: RTCConfiguration) {
+    constructor(rtcConfiguration?: RTCConfiguration, dataChannelOpenTimeoutMs: number = 10000) {
         if (typeof RTCPeerConnection === "undefined") {
             throw new WebRTCServerError("RTCPeerConnection API is not available in this environment.", "API_UNAVAILABLE");
         }
         this._rtcConfiguration = rtcConfiguration || DEFAULT_RTC_CONFIGURATION;
+        this._dataChannelOpenTimeoutMs = dataChannelOpenTimeoutMs;
+
+        // 织: 初始化 Promise. 注意: 这个Promise的超时起点理论上是从收到offer开始，但简单起见我们从transport实例化开始算一个总的超时。
+        // 更精确的超时控制可能需要在handleSignal中启动。
+        this._dataChannelOpenPromise = new Promise<void>((resolve, reject) => {
+            this._resolveDataChannelOpenPromise = () => {
+                if (this._dataChannelOpenTimeoutId) clearTimeout(this._dataChannelOpenTimeoutId);
+                resolve();
+            };
+            this._rejectDataChannelOpenPromise = (reason?: any) => {
+                if (this._dataChannelOpenTimeoutId) clearTimeout(this._dataChannelOpenTimeoutId);
+                reject(reason);
+            };
+            // Timeout is armed here. If handleSignal -> ondatachannel -> onopen takes too long, it will fire.
+            this._dataChannelOpenTimeoutId = setTimeout(() => {
+                // Only reject if it hasn't been resolved or rejected already
+                // This check helps prevent issues if reject is called multiple times, though Promise logic handles it.
+                if (this._dataChannel?.readyState !== 'open') { 
+                    this._rejectDataChannelOpenPromise(new WebRTCServerError(
+                        `Data channel did not open on server within ${this._dataChannelOpenTimeoutMs}ms. Current state: ${this._dataChannel?.readyState || 'not_created'}`,
+                        "DATA_CHANNEL_TIMEOUT"
+                    ));
+                }
+            }, this._dataChannelOpenTimeoutMs);
+        });
+    }
+
+    /**
+     * Public method to await data channel opening, primarily for testing or specific coordination.
+     */
+    public async awaitDataChannelOpen(): Promise<void> {
+        return this._dataChannelOpenPromise;
     }
 
     /**
@@ -123,10 +163,12 @@ export class WebRTCServerTransport {
                 console.warn(`WebRTCServer: Received data channel with unexpected label: ${event.channel.label}. Expected: ${DATA_CHANNEL_LABEL}`);
                 // Optionally, close the unexpected channel or ignore it.
                 // event.channel.close(); 
+                // 织: 如果标签不匹配，也应该reject open promise，因为我们期望的是特定label的通道
+                this._rejectDataChannelOpenPromise(new WebRTCServerError(`Received data channel with unexpected label: ${event.channel.label}`, "UNEXPECTED_CHANNEL_LABEL"));
                 return;
             }
             this._dataChannel = event.channel;
-            this._setupDataChannelListeners();
+            this._setupDataChannelListeners(); // This will set up onopen which resolves the promise
         };
     }
 
@@ -135,10 +177,12 @@ export class WebRTCServerTransport {
 
         this._dataChannel.onopen = () => {
             console.log('WebRTCServer: Data channel opened.');
+            this._resolveDataChannelOpenPromise(); // 织: Resolve the promise
         };
 
         this._dataChannel.onclose = () => {
             console.log('WebRTCServer: Data channel closed.');
+            this._rejectDataChannelOpenPromise(new WebRTCServerError("Data channel closed.", "CHANNEL_CLOSED")); // 织: Reject promise
             if (this.onclose) {
                 this.onclose();
             }
@@ -148,6 +192,7 @@ export class WebRTCServerTransport {
             const errorEvent = event as RTCErrorEvent;
             const message = errorEvent.error ? errorEvent.error.message : 'Data channel error on server';
             const wrappedError = new WebRTCServerError(message, "DATA_CHANNEL_ERROR", errorEvent.error);
+            this._rejectDataChannelOpenPromise(wrappedError); // 织: Reject promise
             if (this.onerror) {
                 this.onerror(wrappedError);
             } else {
@@ -248,6 +293,19 @@ export class WebRTCServerTransport {
      */
     public async close(): Promise<void> {
         console.log('WebRTCServer: Closing...');
+
+        // 织: 清除超时并拒绝等待的Promise
+        if (this._dataChannelOpenTimeoutId) {
+            clearTimeout(this._dataChannelOpenTimeoutId);
+            this._dataChannelOpenTimeoutId = undefined;
+        }
+        // Reject promise if it's still pending, e.g. close called before channel opened
+        // Check readyState before rejecting to avoid rejecting an already resolved/rejected promise if possible,
+        // though promise state itself handles multiple resolves/rejects gracefully.
+        if (this._dataChannel?.readyState !== 'open' && this._dataChannel?.readyState !== 'closed') {
+             this._rejectDataChannelOpenPromise(new WebRTCServerError("Transport closed while data channel was pending.", "CLOSED_PENDING_OPEN"));
+        }
+
         if (this._dataChannel) {
              if (this._dataChannel.readyState === 'open' || this._dataChannel.readyState === 'connecting') {
                 this._dataChannel.close();
