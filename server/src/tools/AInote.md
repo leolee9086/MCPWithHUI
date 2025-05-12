@@ -274,3 +274,125 @@
 - **记录时间**: 2025-05-09 12:33
 
 这个工具主要用于帮助用户发现和管理那些尚未归类为特定生活日志类型的日记内容。这对于日记整理和分类非常有用，可以找出所有"遗漏"的未分类内容。使用SQL查询确保了工具的高效和准确性。
+
+## 2025-05-12 23:09:24 UTC (织)
+
+## 新工具开发计划：getNotebookStats (REVISED @ 2025-05-12 23:11:31 UTC by 织)
+
+**目标**: 创建一个新工具 `getNotebookStats`，用于获取所有思源笔记本的统计信息，辅助用户进行笔记本整理。
+
+**实现思路 (已根据用户建议修正为 SQL 方案)**:
+
+1.  **获取笔记本名称映射**: 
+    *   调用现有工具 `getSiyuanNotebooks` (对应 API `/api/notebook/lsNotebooks`) 获取所有笔记本的基础信息（ID, name）。
+    *   将结果存为一个 Map (`notebookMap: { [id: string]: string }`)，用于后续将笔记本 ID 映射回名称。
+2.  **执行 SQL 查询**: 
+    *   构造 SQL 查询语句，通过 `/api/query/sql` API 执行。SQL 语句大致如下：
+      ```sql\n      SELECT \n          box,                   -- 笔记本 ID\n          COUNT(id) AS docCount, -- 统计文档数量\n          MAX(updated) AS lastUpdated -- 获取最近更新时间戳\n      FROM \n          blocks \n      WHERE \n          type = \'d\'             -- 只统计文档类型的块\n      GROUP BY \n          box                    -- 按笔记本分组\n      ```\n3.  **处理 SQL 结果**: \n    *   获取 SQL 查询返回的统计数据列表 (`statsList: [{ box: string, docCount: number, lastUpdated: string }, ...]`)。\n    *   创建一个 Map (`statsMap: { [boxId: string]: { docCount: number, lastUpdated: string } }`) 以方便按笔记本 ID 查找统计结果。\n4.  **聚合最终结果**: \n    *   遍历第 1 步获取的完整笔记本列表 (`notebookList`)。\n    *   对于列表中的每个笔记本 (`{ id, name }`)：\n        *   从 `statsMap` 中查找其统计数据。如果找不到（说明该笔记本没有文档），则文档数量为 0，最近更新时间为 null。\n        *   结合笔记本的 `id`, `name` 和查找到的（或默认的）`docCount`, `lastUpdated`，构建最终的单个笔记本统计对象。\n    *   收集所有笔记本的统计对象，组成最终的返回数组。\n5.  **工具定义**: \n    *   在 `siyuan.ts` 中定义 `getNotebookStats` 的输入模式 (可选的 Siyuan API Token/URL)、输出模式 (统计信息数组) 和 HUI Hints。\n    *   实现其 handler 函数，包含上述逻辑。\n    *   确保其能被 `toolRegistration.ts` 自动注册。\n6.  **优点**: \n    *   性能相比原计划（N+1次API调用）大幅提升，网络开销小。\n7.  **依赖与假设**: \n    *   依赖 `/api/query/sql` 接口。\n    *   假设 `blocks` 表包含 `box`, `id`, `type`, `updated` 字段且可通过 SQL 查询。
+8.  **文档核对**: \n    *   在实现过程中，如果发现依赖的 API (`lsNotebooks`, `query/sql`) 的实际行为与 `my-siyuan-dev-guide` 中的文档描述不符，将**主动修正相关文档** (`my-siyuan-dev-guide/docs/kernel-api/.../*.md`)，并在此 AInote 和文档项目的 AInote 中记录修正内容。\n\n// ... (保留原计划的潜在问题和文档核对部分可能仍然相关)\n// 潜在问题:\n//    * 如果 /api/query/sql 对性能有严格限制或返回数据量巨大时可能遇到问题。\n// 文档核对:\n//    * ... (同上) ...\n\n## 2025-05-12 23:19:38 UTC (织) - 实现 `getNotebookStats` 工具
+
+**目标**: 在 `MCPWithHUI/server/src/tools/siyuan.ts` 文件中实现 `getNotebookStats` 工具，用于获取所有思源笔记本的统计信息，如文档数量和最后修改时间。
+
+**主要修改 (`siyuan.ts`)**:
+
+1.  **定义输入与输出**: 
+    *   `getNotebookStatsInputRawShape`: 定义了可选的 `siyuanApiUrl` 和 `siyuanApiToken` 输入参数。
+    *   `notebookStatSchema`: 定义了单个笔记本统计信息的 Zod schema，包含 `id`, `name`, `icon`, `sort`, `closed`, `docCount`, `lastModified`。
+    *   `getNotebookStatsOutputSchema`: 定义了工具的完整输出 schema，包含一个文本摘要和 `notebookStatSchema` 数组。
+2.  **HUI Hints**: 
+    *   添加了 `getNotebookStatsHuiHints`，提供了工具的标签、描述、分类、标签和输入提示，方便在 HUI 中展示和使用。
+3.  **Handler 实现 (`getNotebookStatsHandler`)**: 
+    *   **获取 API 配置**: 优先使用参数传入的 `apiUrl` 和 `apiToken`，否则回退到环境变量或配置文件。
+    *   **步骤 1: 获取笔记本列表**: 调用 `/api/notebook/lsNotebooks` 获取所有笔记本的基础信息 (ID, name, icon, sort, closed)。
+    *   **步骤 2: SQL 查询统计**: 
+        *   构造 SQL 查询: `SELECT box, COUNT(id) AS count, MAX(updated) AS max_updated FROM blocks WHERE type = 'd' GROUP BY box`，用于统计每个笔记本 (`box`) 中类型为文档 (`type = 'd'`) 的块数量 (`count`) 和最大的更新时间 (`max_updated`)。
+        *   调用 `/api/query/sql` 执行该 SQL。
+        *   **时间戳转换**: 思源 SQL API 返回的 `updated` 时间戳格式为 `YYYYMMDDHHmmss`。在处理结果时，将其转换为标准的 ISO 8601 格式 (`YYYY-MM-DDTHH:mm:ssZ`)。
+        *   **SQL 失败处理**: 如果 SQL 查询失败，工具会记录错误，但仍会尝试返回基础的笔记本列表信息，并将 `docCount` 设为 -1，`lastModified` 设为 'N/A'，以表示统计数据获取失败。
+    *   **步骤 3: 合并结果**: 将从 `lsNotebooks` 获取的笔记本信息与 SQL 查询得到的统计数据合并，生成最终的 `NotebookStat` 对象数组。
+    *   **步骤 4: 格式化输出**: 返回一个包含文本摘要和 `NotebookStat` 对象数组的 `content` 对象。
+    *   **输出验证**: 在开发阶段（注释中说明了生产环境可移除），使用 `getNotebookStatsOutputSchema.parse(result)` 对最终输出进行校验，确保符合定义。
+4.  **工具注册**: 
+    *   将 `getNotebookStats` 工具（包含其 `inputRawShape`, `outputRawShape`, `handler`, `hui`）添加到文件末尾的 `tools` 导出对象中，以便被 `toolRegistration.ts` 自动发现和注册。
+
+**原因**: 根据之前的计划，实现这个工具是为了辅助用户整理思源笔记本，提供一个高效的方式来获取各笔记本的关键统计数据。
+
+**注意事项**:
+*   SQL 查询只统计了 `type = \'d\'` (文档) 的块作为文档数量。如果需要统计其他类型的块（如标题块、列表块等），SQL 查询需要相应调整。
+*   时间戳转换假定思源返回的 `updated` 时间是 UTC 时间。如果实际情况不同，可能需要调整转换逻辑。
+
+## 2025-05-12 23:24:08 UTC (织) - 修正 `getNotebookStats` 工具的 SQL 失败处理
+
+**目标**: 修正 `MCPWithHUI/server/src/tools/siyuan.ts` 文件中 `getNotebookStatsHandler` 函数在处理 SQL 查询失败时的逻辑，确保其返回的错误状态数据符合预定义的 Zod 输出 Schema。
+
+**问题**: 
+先前版本中，当 SQL 查询失败时，`docCount` 被设置为 `-1`，`lastModified` 被设置为字符串 `\'N/A\'`。这与 `notebookStatSchema` 中定义的 `docCount: z.number().int().nonnegative()` (要求大于等于0) 和 `lastModified: z.string().datetime({ offset: true })` (要求是有效的 ISO 8601 日期时间字符串) 不符。这可能导致在最终的输出 Schema 校验 (`getNotebookStatsOutputSchema.parse(result)`) 时失败，进而抛出 `McpError`，可能表现为工具调用"中断"。
+
+**主要修改 (`siyuan.ts`)**: 
+在 `getNotebookStatsHandler` 函数内部，当捕获到 SQL 查询失败的情况 (即 `!sqlResponse.ok || sqlResponseData.code !== 0` 为真时)：
+
+*   将 `stats` 数组中每个笔记本对象的 `docCount` 默认值从 `-1` 修改为 `0`。
+*   将 `stats` 数组中每个笔记本对象的 `lastModified` 默认值从 `\'N/A\'` 修改为 `new Date(0).toISOString()` (即 `1970-01-01T00:00:00.000Z`)。
+
+**原因**: 
+确保即使在 SQL 查询部分失败的情况下，工具也能返回一个结构上有效（符合 Zod Schema）的响应。用户可以通过响应中的文本信息了解到 SQL 查询失败，同时数据部分仍然是可解析的。这可以避免因 Schema 校验失败而导致工具完全无法返回结果或返回非预期的错误。
+
+## 2025-05-12 23:28:08 UTC (织) - 修正 `getNotebookStats` 处理 `lsNotebooks` 返回的 null 值
+
+**目标**: 修正 `MCPWithHUI/server/src/tools/siyuan.ts` 文件中 `getNotebookStatsHandler` 在合并 `lsNotebooks` 接口数据与 SQL 统计数据时，对可选字段的处理方式，以确保最终结果符合 `notebookStatSchema` 对 `optional()` 字段的要求。
+
+**问题**: 
+通过 Zod 报错日志 (`invalid_union`) 分析发现，工具实际返回的数据 `finalStats` 数组未能通过 `notebookStatSchema` 的校验。进一步排查发现，`lsNotebooks` 接口返回的笔记本信息中，`icon`, `sort`, `closed` 等字段在没有值时可能返回 `null` 而不是 `undefined`。而 `notebookStatSchema` 中定义的 `z.string().optional()`, `z.number().optional()`, `z.boolean().optional()` 期望的是对应类型或 `undefined`，无法直接处理 `null` 值。
+
+**主要修改 (`siyuan.ts`)**: 
+在 `getNotebookStatsHandler` 函数内部，构建 `finalStats` 数组的 `.map()` 回调函数中：
+
+*   将 `icon: nb.icon ?? undefined` 修改为 `icon: nb.icon ?? undefined`。
+*   将 `sort: nb.sort ?? undefined` 修改为 `sort: nb.sort ?? undefined`。
+*   将 `closed: nb.closed ?? undefined` 修改为 `closed: nb.closed ?? undefined`。
+
+**原因**: 
+使用 Nullish Coalescing Operator (`??`) 可以确保当 `nb.icon`, `nb.sort`, `nb.closed` 的值为 `null` 或 `undefined` 时，都统一转换为 `undefined`，从而符合 Zod schema 中 `.optional()` 的要求，避免因为 `null` 值导致 Schema 校验失败。
+
+## 2025-05-12 23:32:33 UTC (织) - 修正 `getNotebookStats` 对 SQL 返回的 `max_updated` 时间戳处理
+
+**目标**: 增强 `MCPWithHUI/server/src/tools/siyuan.ts` 文件中 `getNotebookStatsHandler` 对 SQL 查询结果中 `max_updated` 字段的处理逻辑，提高其健壮性，防止因非预期格式（如空字符串）导致时间转换失败和后续的 Zod Schema 校验错误。
+
+**问题**: 
+多次尝试调用 `getNotebookStats` 工具均失败（表现为"中断"），并伴有 `invalid_union` Zod 错误。进一步分析错误日志和用户提供的 SQL 实际返回数据格式（`max_updated` 为 `"YYYYMMDDHHmmss"` 字符串）后，推测问题可能出在对 `max_updated` 字段的处理上。如果该字段在某些情况下返回非预期的值（例如空字符串 `""`），之前的代码会尝试对其进行 `substring` 操作，产生无效的日期字符串（如 `"--T::Z"`），这会导致 `notebookStatSchema` 中 `lastModified: z.string().datetime()` 的校验失败，进而引发整个工具输出的 Schema 校验失败。
+
+**主要修改 (`siyuan.ts`)**: 
+在 `getNotebookStatsHandler` 函数内部，处理 SQL 返回结果 `sqlResults` 的 `forEach` 循环中：
+
+*   在将 `result.max_updated` 转换为 ISO 8601 格式字符串之前，增加了严格的检查：
+    *   `if (result.max_updated && typeof result.max_updated === 'string' && result.max_updated.length === 14)`
+*   只有当 `result.max_updated` 是一个非空且长度为 14 的字符串时，才尝试使用 `substring` 方法进行转换。
+*   在转换逻辑外层包裹了 `try...catch` 块，即使在极少数情况下 `substring` 失败，也能捕获异常并回退到默认值。
+*   如果 `result.max_updated` 存在但格式不符合预期（非14位字符串），会打印一条警告日志。
+*   任何不符合预期格式或转换失败的情况，`lastModified` 都会被赋予默认的纪元时间字符串 `new Date(0).toISOString()`。
+*   同时，对 `result.count` 也添加了 `?? 0` 处理，确保 `docCount` 始终为有效的非负整数。
+
+**原因**: 
+确保 `lastModified` 字段的值始终是一个有效的 ISO 8601 日期时间字符串或合法的默认值，从而满足 `notebookStatSchema` 的要求。通过增加前置检查和异常捕获，大大提高了时间戳处理的鲁棒性，避免了因 SQL 返回数据中潜在的格式问题导致整个工具失败。
+
+## 2025-05-12 23:36 UTC (织) - 统一 `getNotebookStats` 输出格式为 JSON 字符串
+
+**目标**: 修改 `MCPWithHUI/server/src/tools/siyuan.ts` 中 `getNotebookStats` 工具的输出格式，使其与其他思源工具保持一致，以解决持续的工具调用中断问题。
+
+**问题**: 
+尽管多次修复了 `getNotebookStats` 内部的数据处理和 Schema 校验逻辑，该工具在调用时仍然反复出现"中断"错误，且没有明确的 Zod 错误日志指向具体问题。观察到 `siyuan.ts` 中其他工具（如 `getSiyuanNotebooks`, `searchSiyuanNotes`）都将复杂的返回数据（如数组）序列化为 JSON 字符串，并通过 `{ type: 'text', text: '...' }` 的形式返回。而 `getNotebookStats` 尝试使用 `{ type: 'object', data: [...] }` 并依赖一个自定义的 `getNotebookStatsOutputSchema`。怀疑这种不一致的输出格式可能是导致问题的根源，例如 HUI 框架或 MCP 底层对 `object` 类型的处理存在兼容性问题，或者自定义 Schema 未被正确应用。
+
+**主要修改 (`siyuan.ts`)**: 
+
+1.  **修改 `getNotebookStatsHandler` 返回值**: 
+    *   在函数末尾，将 `finalStats` 数组通过 `JSON.stringify(finalStats, null, 2)` 转换为格式化的 JSON 字符串。
+    *   修改返回的 `content` 数组结构，将原先的 `{ type: 'object', data: finalStats }` 替换为 `{ type: 'text', text: finalStatsJsonString }`。
+    *   相应的摘要文本也略作调整，说明详细数据是 JSON 格式。
+2.  **修改工具导出定义**: 
+    *   在文件末尾的 `tools` 对象中，将 `getNotebookStats` 的 `outputRawShape` 从之前的 `getNotebookStatsOutputSchema` 改回标准的 `mcpStandardOutputSchema`。
+3.  **移除自定义 Schema**: 
+    *   注释掉了不再使用的 `getNotebookStatsOutputSchema` 的 Zod 定义。
+    *   移除了 `getNotebookStatsHandler` 中对该 Schema 进行 `parse()` 校验的代码。
+
+**原因**: 
+通过将 `getNotebookStats` 的输出格式统一为其他工具广泛使用的 JSON 字符串形式，希望能规避潜在的框架兼容性问题或自定义 Schema 应用问题，从而解决反复出现的工具调用中断错误。这是一种基于现有工作代码模式进行的尝试性修复。
