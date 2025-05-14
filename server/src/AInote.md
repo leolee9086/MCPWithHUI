@@ -178,25 +178,6 @@
 ## YYYY-MM-DD (织) - 尝试修复 `meta.ts` 中的构建与类型错误 (续)
 
 -   **文件**: `tools/meta.ts`
--   **先前尝试**: 
-    -   修正了 `findSuitableToolsHandler` 中 `args` 参数的Zod类型推断。
-    -   尝试了多个路径导入 `McpServer` 和 `ToolContext`，最终确认 `@modelcontextprotocol/sdk/server/mcp.js` 是一个可解析的模块路径。
--   **本次修改**: 
-    -   根据Linter提示，`ToolContext` 未在 `@modelcontextprotocol/sdk/server/mcp.js` 中导出，因此从导入语句中移除。
-    -   `findSuitableToolsHandler` 的 `extra` 参数类型临时修改为 `any` 以避免因 `ToolContext` 未找到而报错。
-    -   暂时保留了从 `@modelcontextprotocol/sdk/server/mcp.js` 导入 `McpServer`，尽管用户指出其可能冗余，但Linter未就此报错（可能因其未被直接实例化或使用）。后续可根据实际需要彻底移除。
--   **原因**: 逐步解决 `meta.ts` 中的类型导入和使用问题。
--   **当前状态**: 
-    -   关于 `McpServer` 和 `ToolContext` 的导入错误已解决。
-    -   Linter仍持续报告 `HuiRenderingHints` 的自定义属性（如 `category`, `tags`, `outputDescription`）在 `meta.ts` 中使用时类型不匹配。这些属性在 `shared/src/types.ts` 中已正确定义，推测是TypeScript工作区项目间类型解析配置问题或Linter缓存问题。
--   **后续/建议**: 
-    -   开发者检查并修复TypeScript工作区配置（如 `tsconfig.json` 中的 `references` 或 `paths`），或尝试重启TS Server/清除缓存，以解决 `HuiRenderingHints` 的持续类型报错。
-    -   确认 `McpServer` 是否确实需要从 `@modelcontextprotocol/sdk/server/mcp.js` 导入，如果完全未使用，则可移除该导入语句。
--   **记录时间**: Wed May 07 2025 13:43:34 GMT+0800
-
-## YYYY-MM-DD (织) - 尝试修复 `meta.ts` 中的构建与类型错误
-
--   **文件**: `tools/meta.ts`
 -   **修改尝试**: 
     -   将 `findSuitableToolsHandler` 函数中 `args` 参数的类型定义从 `z.infer<typeof z.object(findSuitableToolsInputRawShape)>` 修改为先创建 `findSuitableToolsInputSchema = z.object(findSuitableToolsInputRawShape)`，然后使用 `z.infer<typeof findSuitableToolsInputSchema>`。
     -   尝试修正 `McpServer` 和 `ToolContext` 的导入路径。初步尝试了 `@modelcontextprotocol/sdk/types.js` (不包含这些类型)，后尝试了 `@modelcontextprotocol/sdk` 及 `@modelcontextprotocol/sdk/server`，但均未能解决Linter的模块找不到问题。
@@ -288,3 +269,30 @@
     -   **清理逻辑**: `finally` 块中的清理逻辑也稍作调整，确保在操作结束后关闭客户端连接。
 -   **原因**: 使 `getStaticHuiClientUsageInfo` 工具提供的客户端示例代码与 `MCPWithHUI/client/src/components/ToolList.vue` 中实际采用的、更鲁棒的连接策略（POST 优先，SSE 回退）保持一致，为开发者提供更准确、更实用的参考。
 -   **记录时间**: Thu May 08 2025 22:50:00 GMT+0800 (中国标准时间)
+
+## YYYY-MM-DD (织) - 添加通用思源 API 调用工具
+
+-   **概要**: 在 `MCPWithHUI/server/src/tools/` 目录下新增了 `siyuanAPICaller.ts` 文件。
+-   **目的**: 此文件提供了一个名为 `callSiyuanAPI` 的通用异步函数，用于简化向思源笔记内核发送 HTTP API 请求的过程。该函数封装了认证、请求构建 (包括GET参数和POST/PUT的JSON体)、以及标准响应和错误处理逻辑。
+-   **主要功能**: 
+    -   接收 API 服务地址、Token、端点、载荷和方法作为参数。
+    -   自动添加 `Authorization: Token ...` 请求头。
+    -   智能处理 GET 请求的查询参数和 POST/PUT 请求的 JSON 请求体。
+    -   解析思源标准的 `{ code, msg, data }` 响应格式，并进行错误检查。
+-   **意义**: 旨在统一项目中调用思源 API 的方式，减少重复代码，并提高代码的健壮性和可维护性。
+-   **详细说明**: 具体用法和实现细节请参见 `MCPWithHUI/server/src/tools/AInote.md` 中关于此工具的条目。
+-   **记录时间**: {{YYYY-MM-DD HH:MM:SS Z}} (织会在这里填写真实时间)
+
+## 2025-05-14 (织) - 新增通用思源 API HUI 调用工具并完成注册
+
+-   **概要**: 在 `MCPWithHUI/server/src/tools/` 目录下新增了 `siyuanGenericAPITool.ts` 文件，并将其中的 `invokeSiyuanAPI` HUI 工具在 `MCPWithHUI/server/src/toolRegistration.ts` 中进行了手动注册。
+-   **目的**: 
+    -   将先前创建的底层 `callSiyuanAPI` 函数封装为一个标准的、可供 HUI 客户端及 AI Agent 使用的 `invokeSiyuanAPI` 工具。
+    -   该工具允许通过参数指定任意思源 API 端点、HTTP 方法、请求载荷 (JSON 字符串)，以及可选的 API URL 和 Token。
+    -   实现了配置的自动加载逻辑 (参数 > 环境变量 > `siyuan.config.json` > 默认值)。
+-   **主要变更**:
+    -   创建 `siyuanGenericAPITool.ts`：定义了 `invokeSiyuanAPI` 工具的输入 Zod schema (`invokeSiyuanAPIInputRawShape`)、HUI 渲染提示 (`invokeSiyuanAPIHuiHints`) 和核心处理逻辑 (`invokeSiyuanAPIHandler`)。
+    -   修改 `MCPWithHUI/server/src/toolRegistration.ts`: 添加了对 `invokeSiyuanAPI` 工具的导入和手动注册调用。
+-   **意义**: 提供了一个强大且灵活的通用接口，用于与思源笔记进行任意的 API 交互，便于未来扩展和集成更多思源功能。
+-   **详细说明**: 关于 `invokeSiyuanAPI` 工具的具体实现、参数、HUI 定义等，请参见 `MCPWithHUI/server/src/tools/AInote.md` 中对应的条目。
+-   **记录时间**: 2025-05-14 02:48:50Z (织会在这里填写真实时间)

@@ -57,6 +57,13 @@ import {
     findSuitableToolsHandler
 } from './tools/meta.js';
 
+// 织：导入新的通用思源API调用工具
+import {
+    invokeSiyuanAPIInputRawShape,
+    invokeSiyuanAPIHuiHints,
+    invokeSiyuanAPIHandler
+} from './tools/siyuanGenericAPITool.js';
+
 // 织: 为新工具定义 HUI Hints (虽然它不接受输入，但可以有描述)
 const getStaticHuiClientUsageInfoHuiHints: HuiRenderingHints = {
   label: '获取静态HUI客户端使用说明',
@@ -186,6 +193,16 @@ export function registerAllTools(huiMcpServer: HuiMcpServer): void {
   );
   console.log('[ToolRegistration] Manually registered Siyuan tool: getOrCreateNotebook');
 
+  // 织：手动注册新的 invokeSiyuanAPI 工具
+  huiMcpServer.huiTool(
+    'invokeSiyuanAPI',
+    (invokeSiyuanAPIHuiHints as HuiRenderingHints)?.description || '通用思源API调用工具。', // 使用HUI Hints中的描述，或提供一个默认值
+    invokeSiyuanAPIInputRawShape,
+    invokeSiyuanAPIHuiHints,
+    invokeSiyuanAPIHandler
+  );
+  console.log('[ToolRegistration] Manually registered Siyuan tool: invokeSiyuanAPI');
+
   // 织：定义一个手动注册过的思源工具列表，用于在自动注册时跳过它们
   const manuallyRegisteredSiyuanTools = [
     'writeToSiyuanDailyNote',
@@ -195,7 +212,8 @@ export function registerAllTools(huiMcpServer: HuiMcpServer): void {
     'createSiyuanNotebook',
     'getSiyuanDocsInNotebook',
     'findMyNotes',
-    'getOrCreateNotebook' // 确保包含所有手动注册的条目
+    'getOrCreateNotebook',
+    'invokeSiyuanAPI' // 织：将新工具添加到手动注册列表
   ];
 
   // --- 自动注册来自 siyuan.ts 的工具 (实验性) ---

@@ -169,13 +169,13 @@
    - `MCPWithHUI/server/src/siyuan.config.json`
 
 **2. 内容**:
-   - 根据用户提供的 API Token (`ubux6nysmb1w0drm`) 创建了此配置文件。
+   - 根据用户提供的 API Token  创建了此配置文件。
    - `siyuanApiUrl` 设置为默认的 `http://127.0.0.1:6806`。
    - `siyuanDailyNoteNotebookId` 暂时设置为空字符串。
    ```json
    {
      "siyuanApiUrl": "http://127.0.0.1:6806",
-     "siyuanApiToken": "ubux6nysmb1w0drm",
+     "siyuanApiToken": "",
      "siyuanDailyNoteNotebookId": ""
    }
    ```
@@ -200,7 +200,7 @@
      ```json
      {
        "siyuanApiUrl": "http://127.0.0.1:6806",
-       "siyuanApiToken": "ubux6nysmb1w0drm",
+       "siyuanApiToken": "",
        "siyuanDailyNoteNotebookId": ""
      }
      ```
@@ -208,7 +208,7 @@
      ```json
      {
        "SIYUAN_API_URL": "http://127.0.0.1:6806",
-       "SIYUAN_API_TOKEN": "ubux6nysmb1w0drm",
+       "SIYUAN_API_TOKEN": "",
        "SIYUAN_DAILY_NOTE_NOTEBOOK_ID": ""
      }
      ```
@@ -396,3 +396,70 @@
 
 **原因**: 
 通过将 `getNotebookStats` 的输出格式统一为其他工具广泛使用的 JSON 字符串形式，希望能规避潜在的框架兼容性问题或自定义 Schema 应用问题，从而解决反复出现的工具调用中断错误。这是一种基于现有工作代码模式进行的尝试性修复。
+
+## YYYY-MM-DD (织) - 新增通用思源 API 调用工具
+
+-   **新增文件**: `siyuanAPICaller.ts`
+-   **新增工具**: `callSiyuanAPI` 函数
+-   **功能描述**:
+    -   提供了一个通用的函数 `callSiyuanAPI<T>(kernelServePath: string, accessToken: string, endpoint: string, payload?: any, method?: 'GET' | 'POST' | 'PUT' | 'DELETE')` 用于调用思源 HTTP API。
+    -   `kernelServePath` 和 `accessToken` 通常从 `siyuan.config.json` 或环境变量中获取后传入。
+    -   自动处理请求认证头 (`Authorization: Token ...`)。
+    -   根据 `method` (默认为 'POST') 处理 `payload`：
+        -   对于 'POST', 'PUT' 等，`payload` 会被 `JSON.stringify` 并作为请求体。
+        -   对于 'GET'，如果 `payload` 是一个对象，它会被转换成 URL 查询参数附加到 `endpoint` 后面。
+    -   对响应进行处理：
+        -   检查 HTTP 状态码，非 2xx 状态会抛出错误，并尝试解析错误信息。
+        -   处理 204 No Content 的情况。
+        -   尝试将成功响应的 body 解析为 JSON。
+        -   如果响应体符合思源标准的 `{ code: number, msg: string, data: T }` 结构，会检查 `code` 是否为 0，非 0 则抛错，否则返回 `data` 部分。
+        -   如果不符合标准结构但请求成功，则直接返回解析后的 JSON 对象。
+-   **目的**: 
+    -   提供一个标准、可重用的方式来与思源 API 进行交互，简化其他工具中直接使用 `fetch` 的复杂性。
+    -   统一 API 调用逻辑，包括认证、请求构建和基础的响应/错误处理。
+-   **使用示例**:
+    ```typescript
+    // import { callSiyuanAPI } from './siyuanAPICaller';
+    // import siyuanConfig from '../siyuan.config.json'; // Or get from env
+
+    // async function getNotebooks() {
+    //   try {
+    //     const data = await callSiyuanAPI<any[]>(
+    //       siyuanConfig.SIYUAN_API_URL,
+    //       siyuanConfig.SIYUAN_API_TOKEN,
+    //       '/api/notebook/lsNotebooks',
+    //       {},
+    //       'POST'
+    //     );
+    //     console.log('Notebooks:', data);
+    //   } catch (error) {
+    //     console.error('Failed to get notebooks:', error);
+    //   }
+    // }
+    ```
+-   **注意事项**: 
+    -   此函数依赖全局的 `fetch` API (Node.js 18+ 环境标配)。
+    -   调用方需要自行管理 `kernelServePath` 和 `accessToken` 的获取。
+-   **记录时间**: {{YYYY-MM-DD HH:MM:SS Z}} (织会在这里填写真实时间)
+
+## 2025-05-14 (织) - 新增通用思源 API 调用 HUI 工具
+
+-   **新增文件**: `siyuanGenericAPITool.ts`
+-   **新增HUI工具**: `invokeSiyuanAPI`
+-   **背景**: 此前创建了 `siyuanAPICaller.ts` 中的 `callSiyuanAPI` 函数，用于底层API调用。为使其能在HUI框架下作为标准工具使用，并能被AI Agent直接发现和调用，现将其封装为独立的HUI工具。
+-   **功能描述**:
+    -   提供了一个名为 `invokeSiyuanAPI` 的 HUI 工具。
+    -   该工具接收 `endpoint` (API端点路径, e.g., `/api/notebook/lsNotebooks`), `method` (HTTP方法, e.g., 'POST', 'GET'), `payload` (JSON字符串格式的请求体或GET参数来源), 以及可选的 `siyuanApiUrl` 和 `siyuanApiToken` 作为输入。
+    -   内部逻辑会处理API URL和Token的获取顺序：参数传入 > 环境变量 (`SIYUAN_API_URL`, `SIYUAN_API_TOKEN`) > `siyuan.config.json` 文件配置 > 默认URL。
+    -   使用 `siyuanAPICaller.ts` 中的 `callSiyuanAPI` 函数执行实际的API调用。
+    -   对API的响应 (成功时为JSON数据，错误时为错误信息) 进行封装，作为文本内容返回给调用方。
+    -   提供了HUI界面描述 (`HuiRenderingHints`)，方便在支持HUI的客户端中展示和使用，包含对各参数的说明、标签和占位符。
+-   **主要组件**:
+    -   `invokeSiyuanAPIInputRawShape`: Zod schema 定义输入参数的结构和校验规则。
+    -   `invokeSiyuanAPIHuiHints`: HUI渲染提示，描述工具的标签、分类、输入字段等。
+    -   `invokeSiyuanAPIHandler`: 工具的异步处理函数，负责接收参数、调用核心API、处理结果和错误。
+    -   `tools` 对象: 按项目规范导出工具定义，以便在 `toolRegistration.ts` 中注册。
+-   **配置文件加载**: `siyuanGenericAPITool.ts` 内部实现了一个简化的 `siyuan.config.json` 加载逻辑，与 `tools/siyuan.ts` 中的类似，用于在未提供API URL/Token参数时，从配置文件或环境变量中读取。
+-   **注册**: 此工具已在 `MCPWithHUI/server/src/toolRegistration.ts` 中手动注册。
+-   **意义**: 提供了一个标准、通用、可被AI Agent调用的方式来与任意思源API端点交互，增强了系统的灵活性和可扩展性。
+-   **记录时间**: 2025-05-14 02:48:30Z (织会在这里填写真实时间)

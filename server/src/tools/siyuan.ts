@@ -1229,6 +1229,88 @@ export async function getNotebookStatsHandler(
     }
 }
 
+// --- setBlockStyle Tool --- 
+
+export const setBlockStyleInputRawShape = {
+    blockId: z.string().min(1, '块ID不能为空').describe('要设置样式的块的ID'),
+    cssProperties: z.string().min(1, 'CSS属性不能为空').describe('要应用的CSS属性字符串，例如：color: red; font-size: 16px; background-color: #f0f0f0;'),
+    siyuanApiUrl: z.string().url().optional().describe('可选的思源 API URL'),
+    siyuanApiToken: z.string().optional().describe('可选的思源 API Token'),
+};
+
+export const setBlockStyleHuiHints: CurrentHuiRenderingHints = {
+    label: '设置块CSS样式',
+    description: '通过设置块的 style 属性，为指定的思源笔记块应用自定义CSS样式。',
+    category: 'Siyuan笔记操作',
+    tags: ['siyuan', 'block', 'style', 'css', 'customization', 'attribute'],
+    outputDescription: '成功时返回操作成功的提示，失败时返回错误信息。',
+    inputHints: {
+        blockId: { label: '块 ID (必填)', inputType: 'text', required: true },
+        cssProperties: { label: 'CSS 属性字符串 (必填)', inputType: 'textarea', placeholder: '例如: color: blue; font-weight: bold; padding: 10px;', required: true },
+        siyuanApiUrl: { label: 'API URL (可选)', inputType: 'text' },
+        siyuanApiToken: { label: 'API Token (可选)', inputType: 'text' },
+    }
+};
+
+export async function setBlockStyleHandler(
+    args: any
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+    const { blockId, cssProperties, siyuanApiUrl: apiUrlArg, siyuanApiToken: apiTokenArg } = args;
+    const fileConfig = loadSiyuanConfigFromFile();
+
+    const apiUrl = apiUrlArg || SIYUAN_API_URL_ENV || fileConfig.SIYUAN_API_URL || 'http://127.0.0.1:6806';
+    const apiToken = apiTokenArg || SIYUAN_API_TOKEN_ENV || fileConfig.SIYUAN_API_TOKEN;
+
+    if (!apiToken) {
+        console.error('[HUI Tool:setBlockStyle] 错误：API Token 未提供。');
+        throw new McpError(ErrorCode.InvalidParams, '配置错误：API Token 必须通过参数、环境变量或 siyuan.config.json 文件提供。');
+    }
+    if (!apiUrl) {
+        console.error('[HUI Tool:setBlockStyle] 错误：API URL 未提供。');
+        throw new McpError(ErrorCode.InvalidParams, '配置错误：API URL 必须通过参数、环境变量或 siyuan.config.json 文件提供。');
+    }
+
+    try {
+        const requestBody = {
+            id: blockId,
+            attrs: {
+                style: cssProperties, // 直接将用户提供的CSS字符串作为style属性的值
+            },
+        };
+
+        console.log(`[HUI Tool:setBlockStyle] 准备调用思源 API: ${apiUrl}/api/attr/setBlockAttrs, Token: ${apiTokenShort(apiToken)}, Body:`, JSON.stringify(requestBody, null, 2));
+
+        const response = await fetch(`${apiUrl}/api/attr/setBlockAttrs`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Token ${apiToken}`,
+            },
+            body: JSON.stringify(requestBody),
+        });
+
+        const responseData = await response.json();
+        console.log('[HUI Tool:setBlockStyle] 思源 API 响应:', JSON.stringify(responseData, null, 2));
+
+        if (!response.ok || responseData.code !== 0) {
+            const errorMessage = `为块 ${blockId} 设置样式失败: ${response.status} ${response.statusText} - ${responseData.msg || '未知错误'}`;
+            console.error(`[HUI Tool:setBlockStyle] ${errorMessage}`);
+            throw new McpError(ErrorCode.InternalError, errorMessage);
+        }
+
+        const resultText = `成功为块 ${blockId} 设置样式属性。请刷新思源笔记查看效果。`;
+        return {
+            content: [{ type: 'text' as const, text: resultText }],
+        };
+
+    } catch (error: any) {
+        console.error(`[HUI Tool:setBlockStyle] 执行时发生错误 for blockId '${blockId}':`, error);
+        if (error instanceof McpError) {
+            throw error;
+        }
+        throw new McpError(ErrorCode.InternalError, `执行 setBlockStyle 工具时出错: ${error.message || '未知错误'}`);
+    }
+}
 // 织：确保将新工具添加到导出的 tools 对象中
 export const tools = {
     writeToSiyuanDailyNote: {
@@ -1284,5 +1366,11 @@ export const tools = {
         outputRawShape: mcpStandardOutputSchema, // 织: 改回标准输出 Schema
         handler: getNotebookStatsHandler,
         hui: getNotebookStatsHuiHints,
+    },
+    setBlockStyle: { // 织: 添加新工具
+        inputRawShape: setBlockStyleInputRawShape,
+        outputRawShape: mcpStandardOutputSchema,
+        handler: setBlockStyleHandler,
+        hui: setBlockStyleHuiHints,
     }
 };
